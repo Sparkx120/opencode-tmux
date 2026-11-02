@@ -126,7 +126,7 @@ describe("registerTools", () => {
     ])
   })
 
-  test("tmux_new_window defaults the command shell to sh", async () => {
+  test("tmux_new_window defaults the command shell to sh and targets the agent session", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" })
     const { runner, calls } = recordingRunner("@7\n")
     await registerTools(ctx, runner, EMPTY_ENV)
@@ -138,10 +138,30 @@ describe("registerTools", () => {
       "-P",
       "-F",
       "#{window_id}",
+      "-t",
+      "%6",
       "sh",
       "-c",
       "echo hi",
     ])
+  })
+
+  test("tmux_new_window reports a missing target instead of running tmux", async () => {
+    const { ctx, tools } = fakeCtx()
+    const { runner, calls } = recordingRunner()
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_new_window")!.execute({}, {})
+    expect(result.content).toContain("no tmux target")
+    expect(calls.length).toBe(0)
+  })
+
+  test("tmux_send no longer requires a target in its schema", async () => {
+    const { ctx, tools } = fakeCtx()
+    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+    const schema = tools.get("tmux_send")!.input as { required: string[] }
+    expect(schema.required).toContain("text")
+    expect(schema.required).not.toContain("target")
   })
 
   test("tmux_capture returns captured text", async () => {

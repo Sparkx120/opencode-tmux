@@ -134,17 +134,27 @@ describe("newPaneArgv", () => {
 })
 
 describe("newWindowArgv", () => {
-  test("prints the window id with no name or command", () => {
-    expect(newWindowArgv({})).toEqual(["new-window", "-d", "-P", "-F", "#{window_id}"])
-  })
-
-  test("adds -n for a name and the shell-wrapped command last", () => {
-    expect(newWindowArgv({ name: "logs", command: "tail -f app.log" })).toEqual([
+  test("targets the agent's session and prints the window id", () => {
+    expect(newWindowArgv("%6", {})).toEqual([
       "new-window",
       "-d",
       "-P",
       "-F",
       "#{window_id}",
+      "-t",
+      "%6",
+    ])
+  })
+
+  test("adds -n for a name and the shell-wrapped command last", () => {
+    expect(newWindowArgv("@1", { name: "logs", command: "tail -f app.log" })).toEqual([
+      "new-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{window_id}",
+      "-t",
+      "@1",
       "-n",
       "logs",
       "sh",
@@ -154,12 +164,14 @@ describe("newWindowArgv", () => {
   })
 
   test("honors a custom shell", () => {
-    expect(newWindowArgv({ command: "echo hi", shell: "bash" })).toEqual([
+    expect(newWindowArgv("@1", { command: "echo hi", shell: "bash" })).toEqual([
       "new-window",
       "-d",
       "-P",
       "-F",
       "#{window_id}",
+      "-t",
+      "@1",
       "bash",
       "-c",
       "echo hi",

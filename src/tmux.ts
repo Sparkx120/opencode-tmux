@@ -88,8 +88,8 @@ export interface NewWindowOptions {
   shell?: string
 }
 
-export function newWindowArgv(opts: NewWindowOptions = {}): string[] {
-  const argv = ["new-window", "-d", "-P", "-F", "#{window_id}"]
+export function newWindowArgv(target: string, opts: NewWindowOptions = {}): string[] {
+  const argv = ["new-window", "-d", "-P", "-F", "#{window_id}", "-t", target]
   if (opts.name) argv.push("-n", opts.name)
   if (opts.command) argv.push(opts.shell ?? DEFAULT_SHELL, "-c", opts.command)
   return argv

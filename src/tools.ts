@@ -129,18 +129,21 @@ export async function registerTools(
     editor.add({
       name: "tmux_new_window",
       description:
-        "Create a window. Load the `tmux` skill first. Input: optional name, command. Returns the new window id.",
+        "Create a window in the agent's session. Load the `tmux` skill first. Input: optional target, name, command. Returns the new window id.",
       input: {
         type: "object",
         properties: {
+          target: { type: "string", description: "Session or window to anchor the new window; defaults to the agent pane" },
           name: { type: "string", description: "Window name" },
           command: { type: "string", description: "Shell command to run in the new window" },
         },
         additionalProperties: false,
       },
       execute: async (raw) => {
-        const args = raw as { name?: string; command?: string }
-        const argv = newWindowArgv({ name: args.name, command: args.command, shell })
+        const args = raw as { target?: string; name?: string; command?: string }
+        const resolved = target(args.target)
+        if (!resolved) return { content: NO_TARGET }
+        const argv = newWindowArgv(resolved, { name: args.name, command: args.command, shell })
         const res = await runner(argv)
         if (res.code !== 0) return failure(argv, res.message)
         const id = res.stdout.trim()
@@ -151,16 +154,16 @@ export async function registerTools(
     editor.add({
       name: "tmux_send",
       description:
-        "Send text or a command to a pane. Load the `tmux` skill first. Input: target, text, optional literal (default true), enter (default true).",
+        "Send text or a command to a pane. Load the `tmux` skill first. Input: text, optional target (defaults to the agent pane), literal (default true), enter (default true).",
       input: {
         type: "object",
         properties: {
-          target: { type: "string", description: "Pane target" },
+          target: { type: "string", description: "Pane target; defaults to the agent pane" },
           text: { type: "string", description: "Text to send" },
           literal: { type: "boolean", description: "Send verbatim (default true); false treats the text as key names" },
           enter: { type: "boolean", description: "Press Enter after the text (default true)" },
         },
-        required: ["target", "text"],
+        required: ["text"],
         additionalProperties: false,
       },
       execute: async (raw) => {
