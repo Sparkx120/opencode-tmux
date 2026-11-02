@@ -61,7 +61,7 @@ Reads a pane's visible contents. It polls until two consecutive reads match, bec
 
 ## Pitfalls
 
-- Send literal text with a separate Enter. Without `-l`, tmux parses `|`, `"`, and `;` as key names; the tool does this for you, but the same rule applies to raw `send-keys`.
+- Send literal text with a separate Enter. Without `-l`, tmux parses `|`, `"`, and `;` as key names; the tool does this for you, but the same rule applies to raw `send-keys`. Terminate flags with `--` before the text, so leading-dash text is not read as an option: `send-keys -t <pane> -l -- <text>`.
 - Capture output lags the redraw. The tool waits for the pane to settle; if a program is still writing, expect the newest lines only on a later read.
 - Geometry comes from `display-message`, not from the process. The agent is not a tty, so terminal queries fail; ask tmux for rows, columns, and layout instead.
 - Bound `-S` ranges to the pane's scrollback. A range deeper than the pane's history returns almost nothing.

@@ -103,11 +103,14 @@ export interface SendOptions {
 }
 
 // Two commands: the text, then Enter. Keeping them separate means multi-line
-// or special-character text never gets parsed as a key name.
+// or special-character text never gets parsed as a key name. `--` terminates
+// the flags so literal text starting with `-` is not read as an option.
 export function sendKeysArgv(target: string, text: string, opts: SendOptions = {}): string[][] {
   const literal = opts.literal !== false
   const enter = opts.enter !== false
-  const first = literal ? ["send-keys", "-t", target, "-l", text] : ["send-keys", "-t", target, text]
+  const first = literal
+    ? ["send-keys", "-t", target, "-l", "--", text]
+    : ["send-keys", "-t", target, "--", text]
   const argv = [first]
   if (enter) argv.push(["send-keys", "-t", target, "Enter"])
   return argv

@@ -183,14 +183,25 @@ describe("newWindowArgv", () => {
 describe("sendKeysArgv", () => {
   test("literal text plus a separate Enter by default", () => {
     expect(sendKeysArgv("%6", "ls -la", {})).toEqual([
-      ["send-keys", "-t", "%6", "-l", "ls -la"],
+      ["send-keys", "-t", "%6", "-l", "--", "ls -la"],
+      ["send-keys", "-t", "%6", "Enter"],
+    ])
+  })
+
+  test("terms with -- so leading-dash text is not read as a flag", () => {
+    expect(sendKeysArgv("%6", "-n dash", {})).toEqual([
+      ["send-keys", "-t", "%6", "-l", "--", "-n dash"],
+      ["send-keys", "-t", "%6", "Enter"],
+    ])
+    expect(sendKeysArgv("%6", "--help", {})).toEqual([
+      ["send-keys", "-t", "%6", "-l", "--", "--help"],
       ["send-keys", "-t", "%6", "Enter"],
     ])
   })
 
   test("drops -l when literal is false", () => {
     expect(sendKeysArgv("%6", "C-c", { literal: false, enter: false })).toEqual([
-      ["send-keys", "-t", "%6", "C-c"],
+      ["send-keys", "-t", "%6", "--", "C-c"],
     ])
   })
 })

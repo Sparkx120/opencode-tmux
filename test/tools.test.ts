@@ -118,7 +118,7 @@ describe("registerTools", () => {
 
     const result = await tools.get("tmux_send")!.execute({ text: "ls" }, TEST_CONTEXT)
     expect(result.content).toContain("sent")
-    expect(calls[1]).toEqual(["send-keys", "-t", "%6", "-l", "ls"])
+    expect(calls[1]).toEqual(["send-keys", "-t", "%6", "-l", "--", "ls"])
     expect(calls[2]).toEqual(["send-keys", "-t", "%6", "Enter"])
   })
 
