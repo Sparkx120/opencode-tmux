@@ -14,8 +14,7 @@ The tools act on the pane the agent runs in by default. That anchor is resolved 
 
 ## Install
 
-Install from GitHub with the OpenCode CLI. The repository is private, so the install uses
-your existing Git credentials, such as an SSH key or a credential helper:
+Install from GitHub with the OpenCode CLI:
 
 ```sh
 opencode plugin add github:Sparkx120/opencode-tmux

@@ -72,8 +72,8 @@ tmux capabilities through tools, and teaches their use through skills.
   used. It is kept current as the work moves, with the split settled between the user and
   the agent.
 - A base `AGENTS.md` describing how to work in the repository, build, and test.
-- The repository stays private to start, published under a personal GitHub account, with
-  the remote named `github`.
+- The repository is public, published under a personal GitHub account, with the remote named
+  `github`.
 
 ## Repository hygiene and release
 
