@@ -111,3 +111,17 @@ The rule is stated in the `tmux` skill, both in its pitfalls and in the `tmux_se
 Not done because none of those fields has been needed yet and the context output is kept
 compact. A change would add them, so anything an inspection reaches for is available from
 pane information alone.
+
+## Portable alignment of the contribution split
+
+The contribution split in the README is a Markdown table whose bar cell uses a code span
+and non-breaking-space padding, so its alignment depends on the renderer: the inline code
+must be rendered in a monospace face and the non-breaking space must survive instead of
+collapsing or being trimmed. A renderer that does otherwise moves the divider and the
+percentage fields, and the table reads as misaligned in its raw source.
+
+Not done because the table is preferred for its structure, a header row and a labelled
+phase column that a reader or a tool can address and a code block cannot carry, and the
+renderer the README is published on keeps the alignment. A change would move the split to a
+fenced code block of plain-space-padded lines, which holds across renderers and is aligned
+in the raw source, and would trade away the table semantics and the labelled rows.

@@ -152,6 +152,26 @@ notes schema, which fixes the sections and their order. The notes start from the
 release rather than a blank page: its body is fetched and edited forward, so the running
 record and the sections that did not change are kept.
 
+## Contribution split
+
+The README carries an AI disclosure whose contribution split is a Markdown table: a
+labelled phase column, then a bar cell holding the human percentage, a bar, and the AI
+percentage. The bar cell is wrapped in a code span and its fields are padded with
+non-breaking space, and `scripts/contribution-split.ts` generates the rows.
+
+The table was chosen over a fenced code block of plain-space-padded lines, which is the
+approach another project used. The table carries structure a code block cannot: a header
+row and a labelled phase column that a reader or a tool can address, and the bar draws two
+independent ten-cell gauges on one hundred-point scale rather than a single split bar, so
+the human and AI shares are read separately rather than as one division.
+
+The trade accepted is that the alignment depends on the renderer: the inline code must be
+rendered in a monospace face and the non-breaking space must survive instead of collapsing
+or being trimmed. A fenced code block would be portable across renderers and aligned even
+in the raw source, but it would lose the table semantics and the labelled rows. It was
+considered and rejected on that basis, and the portability it would address is queued in
+`future_plans.md`; the table is the decision, not a placeholder for the block.
+
 ## Testing and loading
 
 Pure builders and helpers are unit-tested with plain values; the host-facing seams run
