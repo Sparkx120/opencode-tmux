@@ -15,11 +15,36 @@ The plugin is loaded by path from the `plugins` array in
 repository, so a config edit belongs in a commit there). Source changes apply on
 reload.
 
-A reload re-imports the entry but keeps the existing module graph. Renaming an export or
-moving a module can therefore pair a cached importer with a new module, and the plugin
-fails to load with `Export named ... not found`. When that happens the module cache is
-stale: restart the service (`opencode service restart`), which interrupts every TUI on it.
-Check `~/.local/share/opencode/log/opencode.log` for the load warning either way.
+### The service keeps a stale module graph
+
+A reload re-imports the entry but keeps the existing module graph. Removing, renaming, or
+moving an export therefore pairs a cached importer with a newer module, and the plugin
+fails to load. The symptom is a warning naming the missing export:
+
+```
+failed to load plugin target=<plugin path>
+  cause="SyntaxError: Export named '<name>' not found in module '<file>'"
+```
+
+A reload does not clear it. Restart the service (`opencode service restart`), which
+rebuilds the graph from scratch. It interrupts every TUI on the service, because they
+share one daemon.
+
+Check the tree before restarting, so a real fault is not mistaken for the cache:
+
+```
+rg -n '<the name from the error>' .     # expect no hits
+bun -e 'await import("./index.ts")'     # expect the default export to print
+```
+
+If the name is still referenced, or a fresh import fails, it is a code fault and a restart
+will not help. If both are clean, the cache is the only explanation left. Either way the
+load warning is in `~/.local/share/opencode/log/opencode.log`.
+
+Run the restart from outside the service. A shell started by a session is a child of the
+server, so restarting from inside it kills the command mid-restart. Detach it on a short
+delay, `setsid sh -c 'sleep 20; opencode service restart'`, or run it from a terminal that
+is not attached to the service.
 
 ## Source map
 
@@ -105,6 +130,17 @@ Conventional commits, one per task. Work on a feature branch rather than directl
 Reference a file, a function, or a test by name. Do not cite line numbers, since they
 drift. Do not put totals such as test counts in prose, since the repo already derives
 them and they go stale; say what a command is for, not how much it runs.
+
+`docs/requirements.md` holds the specification and `docs/architecture.md` holds the agreed
+design and its reasoning. Keep them current as the work moves, and treat updating them as
+part of the same change as the decision rather than a later chore. When a decision changes
+either document, write it there: a new or changed requirement goes to `requirements.md`,
+and a design choice, the reason for it, or an approach that was superseded goes to
+`architecture.md`. A decision that lives only in a conversation is lost, and these files
+are what the next reader consults instead.
+
+Both documents are written in the third person, so a decision is recorded without naming
+the person who made it.
 
 ## AI disclosure
 
