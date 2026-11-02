@@ -159,6 +159,44 @@ other.
 All three documents are written in the third person, so a decision is recorded without
 naming the person who made it.
 
+## Prose style
+
+All prose in and around the project follows one plain, humanized standard, so a commit
+message, a code comment, a documentation page, and a pull request description all carry
+the same voice.
+
+- Write for the reader. Lead with the decision or the fact, and keep only the reasoning
+  that would change the reader's mind.
+- Say the point once. Cut throat-clearing openings, one-line closers that restate it,
+  forced triads, and inflated wording.
+- Use active voice and concrete words. Prefer short sentences to long.
+- Comments explain why, not what.
+- Straight quotes, sentence-case headings, no em dashes as sentence connectors, no
+  decorative bold.
+- Never invent facts, names, numbers, or citations.
+
+## Code style
+
+Write the least code that does the job. Prefer deleting to adding, and reuse to writing.
+
+Before writing new code, stop at the first rung that holds:
+
+1. Does this need to exist at all? If not, do not build it.
+2. Is it already in this repository?
+3. Does the standard library do it?
+4. Does a native platform feature do it?
+5. Does an already-installed dependency do it?
+6. Can it be one line?
+7. Otherwise, write the minimum that works.
+
+Add one small test for anything that carries logic.
+
+The rule covers complexity and dependencies only, never correctness. Validation, error
+handling, security, and accessibility are not cut for brevity: the code stays small
+because it is necessary, not golfed. The global coding conventions still apply alongside
+it: match the surrounding style, keep functions small and focused, handle errors
+explicitly, comment on why rather than what, and introduce no new tooling.
+
 ## AI disclosure
 
 The README carries the AI disclosure. Its maintenance, the contribution-split layout and
