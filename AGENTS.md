@@ -146,8 +146,15 @@ and a design choice, the reason for it, or an approach that was superseded goes 
 `architecture.md`. A decision that lives only in a conversation is lost, and these files
 are what the next reader consults instead.
 
-Both documents are written in the third person, so a decision is recorded without naming
-the person who made it.
+`docs/future_plans.md` holds the queue of planned or deferred work: one entry per item,
+saying what it is, why it is not done, and what would have to change. A decision to defer
+something rather than build it is recorded there, and the entry moves out when the work is
+done. Keep it consistent with the `Known limitations` section of the release notes and with
+the limitation language in the other two documents, so the three do not contradict each
+other.
+
+All three documents are written in the third person, so a decision is recorded without
+naming the person who made it.
 
 ## AI disclosure
 
