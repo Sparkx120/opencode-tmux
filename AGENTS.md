@@ -101,3 +101,41 @@ Conventional commits, one per task. Work on a feature branch rather than directl
 Reference a file, a function, or a test by name. Do not cite line numbers, since they
 drift. Do not put totals such as test counts in prose, since the repo already derives
 them and they go stale; say what a command is for, not how much it runs.
+
+## AI disclosure
+
+The README carries the AI disclosure, under `AI Disclosure`, with two subsections,
+`Contribution split` and `Models`. Keep both current as the work moves.
+
+The split is an estimate of how the work was divided, not a measurement, so settle the
+percentages with the user rather than setting them alone. There is a row per phase:
+architecture, requirements, implementation, testing, review, and documentation.
+
+Each row is one cell holding the human percentage, the bar, and the AI percentage. In the
+bar the divider is the axis and sits at a fixed column, so the two sides are separate
+gauges on the same hundred-point scale rather than one bar split at a point. Each side is
+ten cells wide, one cell per ten points, filled outward from the divider with `█` and
+leaving the rest in `░`, so a side draws `floor(percent / 10)` cells. Regenerate the rows
+with a script rather than adjusting the spacing by hand, since hand-padding drifts and the
+divider stops lining up.
+
+Pad so the bar starts at the same offset on every row, and pad after the percentage rather
+than before it: spaces inside the cell survive rendering, while leading spaces are
+stripped.
+
+The `Models` list names each model used and the phases it covered, and stays limited to
+models that actually ran the work. Ask before recording a model that has not.
+
+## Versioning
+
+`package.json` holds the plugin version. On a new feature, bump it as part of that work,
+and agree with the user which part of the version moves:
+
+- major, for a break in the surface: a renamed or removed tool, or changed option
+  semantics.
+- minor, for new capability that keeps the existing surface: a tool, a skill, or an
+  option.
+- patch, for a fix, or for documentation only.
+
+Ask rather than choosing the part alone, and make the bump part of the same change as the
+feature it describes.
