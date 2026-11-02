@@ -60,8 +60,23 @@ tmux capabilities through tools, and teaches their use through skills.
 
 - A README covering what the plugin does, how to install and configure it, and the tools
   it registers.
+- The install instructions reference the GitHub remote, so the plugin is added by its
+  repository spec rather than from a local path.
+- The README carries a disclaimer of its early alpha or beta status, noting that the tool
+  surface, options, and skills may still change in ways that break configuration.
 - An AI disclosure in the README: the contribution split per work type, and the models
-  used.
+  used. It is kept current as the work moves, with the split settled between the user and
+  the agent.
 - A base `AGENTS.md` describing how to work in the repository, build, and test.
 - The repository stays private to start, published under a personal GitHub account, with
   the remote named `github`.
+
+## Repository hygiene and release
+
+- The repository stays free of machine-specific values and secrets. No absolute home paths,
+  usernames, hostnames, or the names of other projects appear in the tree, and the tree is
+  checked for these before it is published.
+- The version in `package.json` moves with a feature, and the part that moves (major, minor,
+  or patch) is agreed between the user and the agent.
+- A release is cut from `main` with an annotated tag matching the `package.json` version and
+  published as a GitHub release whose notes follow the release notes schema.

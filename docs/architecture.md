@@ -45,8 +45,13 @@ per-call target, the plugin `pane` option, the directory match, then `$TMUX_PANE
 ## Anchor protection
 
 The anchor is the agent's own TUI. Killing it ends the session, and typing into it writes
-into the agent's own prompt. Removal refuses the anchor pane and the window containing it,
-with no override, and the tools that write to a pane refuse the anchor.
+into the agent's own prompt. Each tool that could do either refuses the anchor, with no
+override:
+
+- `tmux_kill` refuses the anchor pane and the window that contains it.
+- `tmux_send` refuses the anchor pane, since it would type into the agent's own prompt.
+- `tmux_exec` needs no refusal: it injects nothing into an existing pane, and splits the
+  anchor to create its own.
 
 ## Permission model
 
@@ -66,8 +71,11 @@ anything else in the permission set.
 
 ## Command execution and output
 
-`tmux_exec` injects nothing into a pane. It creates its own pane with its shell, sets
-`remain-on-exit` on it, and runs the command as that pane's process with `respawn-pane -k`.
+`tmux_exec` takes no `target`: driving a command into an existing pane is `tmux_send`'s
+job, and the exec tool always creates its own pane or window, split from or placed in the
+anchor's session. It injects nothing into a pane, creating its own pane with its shell,
+setting `remain-on-exit` on it, and running the command as that pane's process with
+`respawn-pane -k`.
 Running the command directly, rather than typing it into an interactive shell, is what
 keeps the output clean: there is no echoed command line and no prompt to slice out. The
 pane keeps its shell until the respawn, so setting the option cannot race a fast command
@@ -110,9 +118,22 @@ flag would report NERDTree absent no matter what is installed.
   fails with a clear message instead of a raw tmux error.
 - Every tool returns text. No `execute` throws.
 
+## Release process
+
+A release is cut from `main` with an annotated tag named for the version it carries, and
+the tag matches the `version` in `package.json`. The GitHub release body follows the release
+notes schema, which fixes the sections and their order. The notes start from the previous
+release rather than a blank page: its body is fetched and edited forward, so the running
+record and the sections that did not change are kept.
+
 ## Testing and loading
 
 Pure builders and helpers are unit-tested with plain values; the host-facing seams run
 over fake context objects; a live suite against a real tmux is opt-in and uses its own
-detached sessions. The plugin is loaded by path from the global configuration, so a source
-change applies on reload, while a stale module graph needs a service restart.
+detached sessions.
+
+The plugin is loaded by path from the global configuration, so a source change applies on
+reload. A reload re-imports the entry but keeps the existing module graph, so removing,
+renaming, or moving an export pairs a cached importer with a newer module and the plugin
+fails to load with a missing-export error. A reload does not clear that; a service restart
+rebuilds the graph from scratch and is the fix.
