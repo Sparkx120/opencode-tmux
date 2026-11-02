@@ -83,3 +83,35 @@ from the capture.
 Not done because the fallback works and the older tmux is only relevant to `tmux_exec`'s
 capture. A change would either require a newer tmux or extend the capture cleaning, which
 already handles the known banner text.
+
+## Detecting whether naming can work at all
+
+Naming sets a scoped option before setting the name: `allow-set-title` off for a pane,
+`allow-rename` off for a window. That option is what keeps the name from being overwritten
+by the program that owns the title. A tmux without it cannot make a name stick, and
+`tmux_name` is registered regardless, so on such a build the tool would report a name that
+is gone by the next prompt.
+
+Not done because no build without those options has been exercised, and this host has both.
+A change would probe once at setup for the options naming depends on, and register
+`tmux_name` only when every one is present. When one is missing it would drop the tool
+entirely, stop `tmux_new` quietly accepting a `name` that cannot be honoured, and say so in
+`tmux_context` and in the `tmux` skill, so the absence is visible rather than silent.
+
+## Inspecting a pane without typing into it
+
+The rule the code already follows: nothing learns about a pane by sending keys into it. The
+existence probe, the anchor, the context, and a capture all read panes through
+`display-message`, `list-panes`, or `capture-pane`, and `send-keys` appears only in
+`tmux_send`, where typing is the entire point. A pane is the user's workspace, and every key
+sent to it leaves residue in something the user is looking at.
+
+What is deferred is making that rule sufficient for an investigation rather than merely
+followed. `tmux_context` reports each pane's address, id, title, and current command, but
+not its size, whether it is the active pane, or whether it is dead, so an investigator who
+needs those has no direct way to ask.
+
+Not done because none of those fields has been needed yet and the context output is kept
+compact. A change would add them, so anything an inspection reaches for is available from
+pane information alone, and would state the rule in `AGENTS.md` and the `tmux` skill instead
+of leaving it to habit.
