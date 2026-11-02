@@ -19,9 +19,17 @@ Prefer ids. Coordinates are fine for a target you just read from `tmux_context`,
 
 ## The agent's pane
 
-`$TMUX_PANE` is the value inherited from whatever launched the `opencode serve` daemon. The agent owns no tmux client, so this value can be stale: it may name a pane that no longer exists, or a pane from a different session. When a tool has no `target`, it falls back to the plugin `pane` option and then to `$TMUX_PANE`. Tools verify the resolved target before acting; a target that no longer exists is reported rather than used, with a suggestion to pass a target or set the `pane` option. Call `tmux_context` to see which pane a tool will act on: it prints the agent pane first, then every pane in every session, and it skips the agent line when the anchor is unavailable.
+`$TMUX_PANE` is the value inherited from whatever launched the `opencode serve` daemon. The daemon is long-lived and shared by every TUI, so this value is per-daemon, not per-session: it names the pane that launched the daemon, which may be a different session's pane. The agent owns no tmux client.
 
-The plugin `pane` option overrides that fallback. When it is set, an omitted target resolves to the option instead of `$TMUX_PANE`. Use it when `$TMUX_PANE` is wrong or stale.
+When a tool has no `target`, the anchor is resolved in this order:
+
+1. The plugin `pane` option, if set. It is a manual pin and is trusted as-is.
+2. The pane whose current path matches the session's location directory. This is the session's own pane. When several panes share the directory, the one running the opencode TUI wins; if that is still ambiguous, resolution falls through rather than guessing.
+3. `$TMUX_PANE`.
+
+Tools verify the resolved target before acting; a target that no longer exists is reported rather than used, with a suggestion to pass a target or set the `pane` option. Call `tmux_context` to see which pane a tool will act on: it prints the agent pane first, labelled with how it was resolved, then every pane in every session, and it skips the agent line when the anchor is unavailable.
+
+The plugin `pane` option overrides the directory match. Use it only when the heuristic cannot find the right pane.
 
 ## Tools
 
@@ -67,5 +75,5 @@ Reads a pane's visible contents. It polls until two consecutive reads match, bec
 - Bound `-S` ranges to the pane's scrollback. A range deeper than the pane's history returns almost nothing.
 - `split-window -d -P -F '#{pane_id}'` returns the new pane id without changing focus. Use the returned id; do not guess it.
 - Clean up with `kill-pane -t <id>` and `kill-session -t <name>`. Kill by id or name, never by index.
-- `$TMUX_PANE` is inherited and can be stale. Tools verify the resolved target before acting; if a target is reported missing, pass a target from `tmux_context` or set the plugin `pane` option.
-- The agent's shell is not a tmux client: `$TMUX` and `$TMUX_PANE` are the only anchors, and the plugin `pane` option can override the latter.
+- `$TMUX_PANE` is inherited by the shared daemon and can point at another session's pane. The anchor is normally the pane whose path matches the session's directory; pass a target from `tmux_context` if a tool reports the anchor missing.
+- The agent's shell is not a tmux client. The anchor comes from the session directory, the plugin `pane` option, or `$TMUX_PANE`, in that order of preference after an explicit target.

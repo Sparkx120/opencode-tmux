@@ -7,7 +7,7 @@ An OpenCode V2 plugin that adds a small set of tmux tools and one `tmux` skill t
 - Registers lean tools to inspect a tmux session, name panes and windows, create panes and windows, send text, and capture pane output.
 - Registers a `tmux` skill that teaches the model the session/window/pane model, target syntax, and the pitfalls of driving tmux from a non-tty process.
 
-The tools act on the pane the agent runs in by default, resolved from `$TMUX_PANE`. The `pane` option overrides that anchor for a fixed target. A resolved target that no longer exists — a stale `$TMUX_PANE` inherited by the `opencode serve` daemon, for example — is detected before the operation runs and reported, rather than failing with a raw tmux error.
+The tools act on the pane the agent runs in by default. That anchor is resolved once per session, in this order: an explicit `target` on the call, then the `pane` option, then the pane whose current path matches the session's location directory, then `$TMUX_PANE`. The directory match exists because `opencode serve` is a long-lived daemon shared by every TUI, so the `$TMUX_PANE` it inherited belongs to whichever pane launched the daemon, not to the calling session. When the directory matches more than one pane, one running the opencode TUI wins; if that is still ambiguous, the resolver falls back to `$TMUX_PANE` rather than guessing. A resolved target that no longer exists is detected before the operation runs and reported, rather than failing with a raw tmux error. `tmux_context` labels the anchor line with how it was resolved.
 
 ## Install
 
@@ -23,7 +23,7 @@ Add a `plugins` entry to `opencode.jsonc`. The object form lets you set the plug
 
 Both options are optional.
 
-- `pane` — the default target for tools that take one, including `tmux_new_window`. Without it, an omitted target resolves to `$TMUX_PANE`. It accepts a pane id such as `%6`, or a coordinate such as `work:0.1`.
+- `pane` — pins the default target for tools that take one, including `tmux_new_window`. It sits above the directory heuristic, so a pinned pane is never second-guessed. Without it, an omitted target resolves to the session's pane (or `$TMUX_PANE` as a fallback). It accepts a pane id such as `%6`, or a coordinate such as `work:0.1`.
 - `shell` — the shell used to run a `command` for `tmux_new_pane` and `tmux_new_window`. Defaults to `sh`. The command runs as `<shell> -c <command>`, so pipes, redirects, `&&`, and globs work.
 
 ## Permissions
