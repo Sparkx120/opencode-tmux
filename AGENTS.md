@@ -52,8 +52,9 @@ is not attached to the service.
   registering the tools and then the skills.
 - `src/tmux.ts` — the pure argv builders and the runner. `run` shells out and never
   rejects, returning a `message` for a non-zero exit. Builders: `newArgv`, `killArgv`,
-  `nameArgv`, `sendKeysArgv`, `captureArgv`, `targetExistsArgv`, `sessionForArgv`,
-  `windowForArgv`, `paneOptionArgv`, `respawnArgv`, `paneDeadArgv`, `paneDeadStatusArgv`.
+  `nameArgv`, `nameDisableArgv`, `nameSequence`, `sendKeysArgv`, `captureArgv`,
+  `targetExistsArgv`, `sessionForArgv`, `windowForArgv`, `paneOptionArgv`,
+  `windowOptionArgv`, `respawnArgv`, `paneDeadArgv`, `paneDeadStatusArgv`.
   Waiting: `settleCapture` for a pane read, `waitForPaneDead` for the exec pane. Output
   helpers: `cleanExecCapture`, `execTrailer`, `execTimeoutTrailer`.
 - `src/anchor.ts` — per-session anchor resolution: `listPanesArgv`, `parsePaneRows`,
@@ -100,6 +101,12 @@ editor-and-tool-merge feature.
   A command that outlives the timeout is left running, and the trailer names its pane.
 - Every tool probes the resolved target for existence before acting, so a stale anchor
   fails with a clear message rather than a raw tmux error.
+- Anything the plugin names is protected from the program that owns the title. Naming
+  issues `nameSequence`: first the scoped option (`allow-set-title` off for a pane,
+  `allow-rename` off for a window), then the setter. The option is scoped to the one pane
+  or window, so a sibling keeps tmux's default. The name therefore survives a prompt
+  redraw; the trade is that the pane title no longer reflects the running program, which
+  `tmux_context` still reports in its `cmd=` field.
 - The NERDTree probe uses `-N`: plain `-es` starts vi-compatible and does not load
   packages, so NERDTree would always look absent.
 

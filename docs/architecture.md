@@ -53,6 +53,32 @@ override:
 - `tmux_exec` needs no refusal: it injects nothing into an existing pane, and splits the
   anchor to create its own.
 
+## Naming
+
+A pane and a window each carry a name that the program running in them can change. A
+shell redraws the pane title from its prompt on every command, and a program may rename
+its window through a title escape. Setting a name with `select-pane -T` or
+`rename-window` is therefore not enough on its own: the program overwrites it on its next
+redraw.
+
+Naming turns the program's own title or rename off first, scoped to the one pane or
+window, so nothing else is affected. For a pane the option is `allow-set-title` off, set
+with `set-option -p`, then `select-pane -T`; for a window it is `allow-rename` off, set
+with `set-option -w`, then `rename-window`. Both are the option that lets the program own
+the name, so turning it off is what makes the name stick. `rename-window` additionally
+turns `automatic-rename` off for that window, so a changing command does not rename it
+either.
+
+This runs wherever the plugin names something: `tmux_name`, `tmux_new` with a `name`, and
+`tmux_edit` opening a window, whose editor sets the terminal title. Creation no longer
+passes `-n` to `new-window`, since the name is set after creation as the same protected
+sequence, which removes the race between the new window's program and the option that
+disables it.
+
+The trade is recorded where a user meets it: the pane title no longer reflects the
+running program. The running command is still available from tmux as
+`#{pane_current_command}`, which `tmux_context` reports in its `cmd=` field.
+
 ## Permission model
 
 Anything that would run a command asserts OpenCode's `shell` permission action, so the
