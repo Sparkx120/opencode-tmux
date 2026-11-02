@@ -74,12 +74,12 @@ Naming a pane or window, through `tmux_name` or the `name` option of `tmux_new`,
 
 | Work type | Human / AI |
 | --- | --- |
-| Architecture | 75%   ░░░███████│██░░░░░░░░  25% |
-| Requirements | 90%   ░█████████│█░░░░░░░░░  10% |
-| Implementation (human oversight) | 0%    ░░░░░░░░░░│██████████  100% |
-| Testing | 0%    ░░░░░░░░░░│██████████  100% |
-| Review | 50%   ░░░░░█████│█████░░░░░  50% |
-| Documentation | 10%   ░░░░░░░░░█│█████████░  90% |
+| Architecture | ` 75%  ░░░███████│██░░░░░░░░  25% ` |
+| Requirements | ` 90%  ░█████████│█░░░░░░░░░  10% ` |
+| Implementation (human oversight) | `  0%  ░░░░░░░░░░│██████████  100%` |
+| Testing | `  0%  ░░░░░░░░░░│██████████  100%` |
+| Review | ` 50%  ░░░░░█████│█████░░░░░  50% ` |
+| Documentation | ` 10%  ░░░░░░░░░█│█████████░  90% ` |
 
 ### Models
 
