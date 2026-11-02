@@ -149,3 +149,10 @@ version first, following the versioning rules above, and settle the part with th
 Before writing or posting the release body, read `.github/release_notes_schema.md` and
 follow it. That file is the structure the notes must take; it is the source of truth for
 the sections, their order, and the formatting rules.
+
+Start from the previous release rather than from a blank page. Fetch its body, for example
+with `gh release view <previous-tag> --json body -q .body`, and edit that into the new one:
+refresh the Highlights, move anything now fixed out of Known limitations, resolve what has
+been done, and re-check Breaking changes, Tools and skills, Options, and Permissions
+against the current tree. Recreating the notes each time loses the running record and the
+sections that did not change.
