@@ -139,3 +139,13 @@ and agree with the user which part of the version moves:
 
 Ask rather than choosing the part alone, and make the bump part of the same change as the
 feature it describes.
+
+## Releases
+
+Releases are cut from `main` with an annotated `v<version>` tag that matches the `version`
+in `package.json`, and published as a GitHub release on the same repository. Bump the
+version first, following the versioning rules above, and settle the part with the user.
+
+Before writing or posting the release body, read `.github/release_notes_schema.md` and
+follow it. That file is the structure the notes must take; it is the source of truth for
+the sections, their order, and the formatting rules.
