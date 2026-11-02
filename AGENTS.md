@@ -2,7 +2,7 @@
 
 ## What this repo is
 
-An OpenCode v2 plugin that adds a lean set of tmux tools and two skills. It registers
+An OpenCode v2 plugin that adds a lean set of tmux tools and skills. It registers
 `tmux_context`, `tmux_new`, `tmux_kill`, `tmux_name`, `tmux_send`, `tmux_capture`,
 `tmux_exec`, and `tmux_edit`, plus the `tmux` and `tmux-editor` skills. It drives the
 `tmux` binary through `execFile`; there is no tmux library and no shell wrapper around the
@@ -70,9 +70,9 @@ is not attached to the service.
 - `test/`: the `bun test` suite. The builders and pure helpers are driven with plain
   values; the host seams (tools, skills, wiring) run over fake `ctx` objects; the
   integration file drives a real tmux and is opt-in.
-- `scripts/contribution-split.ts` — regenerates the `Contribution split` table rows in
+- `scripts/contribution-split.ts`: regenerates the `Contribution split` table rows in
   `README.md` from the percentage pairs.
-- `.github/ai_contribution_disclaimer.md` — how the README AI disclosure is maintained.
+- `.github/ai_contribution_disclaimer.md`: how the README AI disclosure is maintained.
 
 The plan for the current feature set lives outside the repo, in the plan document for the
 editor-and-tool-merge feature.
@@ -195,7 +195,7 @@ The rule covers complexity and dependencies only, never correctness. Validation,
 handling, security, and accessibility are not cut for brevity: the code stays small
 because it is necessary, not golfed. The global coding conventions still apply alongside
 it: match the surrounding style, keep functions small and focused, handle errors
-explicitly, comment on why rather than what, and introduce no new tooling.
+explicitly, and introduce no new tooling.
 
 ## AI disclosure
 
