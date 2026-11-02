@@ -12,10 +12,10 @@ Use the `tmux_*` tools to drive tmux directly. They act on real panes; there is 
 A tmux session holds windows, and a window holds panes. You address a pane three ways:
 
 - `session:window.pane` — a coordinate such as `work:0.1`. Readable, but it shifts when windows or panes are added, removed, or reordered.
-- `%pane_id` — a stable pane id such as `%6`. tmux never reuses a live id.
+- `%pane_id` — a stable pane id such as `%1`. tmux never reuses a live id.
 - `@window_id` — a stable window id such as `@1`.
 
-Prefer ids. Coordinates are fine for a target you just read from `tmux_context`, but ids stay correct while you work. A bare target like `%6` is a pane; `@1` is a window.
+Prefer ids. Coordinates are fine for a target you just read from `tmux_context`, but ids stay correct while you work. A bare target like `%1` is a pane; `@1` is a window.
 
 ## The agent's pane
 

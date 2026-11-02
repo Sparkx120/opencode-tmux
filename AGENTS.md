@@ -11,7 +11,8 @@ plugin itself.
 ## Loading it while you work
 
 The plugin is loaded by path from the `plugins` array in
-`~/.config/opencode/opencode.jsonc` (`~/.config/opencode` is a symlink into a separate repository, so a config edit belongs in a commit there). Source changes apply on
+`~/.config/opencode/opencode.jsonc` (`~/.config/opencode` is a symlink into a separate
+repository, so a config edit belongs in a commit there). Source changes apply on
 reload.
 
 A reload re-imports the entry but keeps the existing module graph. Renaming an export or
@@ -44,8 +45,8 @@ Check `~/.local/share/opencode/log/opencode.log` for the load warning either way
   values; the host seams (tools, skills, wiring) run over fake `ctx` objects; the
   integration file drives a real tmux and is opt-in.
 
-The plan for the current feature set lives outside the repo at
-`~/.opencode/plan/opencode-tmux-0001-editor-and-tool-merge.md`.
+The plan for the current feature set lives outside the repo, in the plan document for the
+editor-and-tool-merge feature.
 
 ## Invariants
 
