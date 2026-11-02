@@ -1,6 +1,6 @@
 # opencode-tmux
 
-An OpenCode V2 plugin that adds a small set of tmux tools and two skills that document how to use them.
+An OpenCode V2 plugin that adds a small set of tmux tools and skills that document how to use them.
 
 ## What it does
 

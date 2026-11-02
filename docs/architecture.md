@@ -12,7 +12,7 @@ repository root, and the plugin `id` is `tmux`.
 
 ## Tool surface
 
-Eight tools, one verb each:
+The tools, one verb each:
 
 - `tmux_context`, `tmux_new`, `tmux_kill`, `tmux_name`, `tmux_send`, `tmux_capture`,
   `tmux_exec`, `tmux_edit`.

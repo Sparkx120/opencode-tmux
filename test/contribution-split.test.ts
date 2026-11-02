@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { DIVIDER, NB, ROWS, renderRows, rewrite } from "../scripts/contribution-split.js"
+import { DIVIDER, NB, ROWS, bar, renderRows, rewrite } from "../scripts/contribution-split.js"
 
 // The settled human/AI pairs. The generator must reproduce them exactly.
 const EXPECTED: Record<string, [number, number]> = {
@@ -43,6 +43,18 @@ describe("contribution-split", () => {
   test("puts the divider at the same code-point offset on every row", () => {
     const offsets = new Set(renderRows().map((line) => cellBody(line).indexOf(DIVIDER)))
     expect(offsets.size).toBe(1)
+  })
+
+  test("fills each side with floor(percent / 10) cells from a pinned literal", () => {
+    // Architecture is 75/25: three dark then seven full on the human side, then
+    // the divider, then two full then eight dark on the AI side.
+    expect(bar(75, 25)).toBe(
+      "\u2591\u2591\u2591" +
+        "\u2588\u2588\u2588\u2588\u2588\u2588\u2588" +
+        "\u2502" +
+        "\u2588\u2588" +
+        "\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591",
+    )
   })
 
   test("rewrites exactly the six rows and is idempotent", () => {
