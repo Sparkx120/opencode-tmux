@@ -78,7 +78,7 @@ editor-and-tool-merge feature.
 
 - Tools have explicit, named options. No raw tmux flag passthrough, and no option that
   forwards an unvalidated string into tmux as flags.
-- Every tool description ends with guidance to load the `tmux` skill first. The
+- Every tool description tells the model to load the `tmux` skill first. The
   `tmux_edit` description and the `tmux-editor` skill both say the editor is opened only
   on an explicit user request.
 - Target resolution order: explicit per-call target, then the plugin `pane` option, then

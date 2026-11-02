@@ -86,11 +86,11 @@ None.
 
 ### Tools and skills
 
-- `tmux_example` — <what it does> (new)
+- `tmux_example`: <what it does> (new)
 
 ### Options
 
-- `<name>` — <effect> (default `<value>`)
+- `<name>`: <effect> (default `<value>`)
 
 ### Permissions
 

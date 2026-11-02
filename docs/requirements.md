@@ -21,7 +21,9 @@ tmux capabilities through tools, and teaches their use through skills.
 - Tools stay lean: precise functions with clear, simple descriptions.
 - Every tool description points at the `tmux` skill, so a request involving tmux loads the
   skill first for context.
-- Panes and windows should be named for their purpose by default.
+- Naming is opt-in: a pane or a window is named only when a `name` is given, to the create
+  tool or through the name tool. The skills encourage naming a pane or a window for its
+  purpose.
 - A name the plugin sets must outlast the program that owns the title: the plugin turns
   the program's own title or rename off for the pane or window it names, scoped to that
   one pane or window, and accepts the trade that the pane title then no longer reflects
@@ -42,8 +44,8 @@ tmux capabilities through tools, and teaches their use through skills.
 - The editor is taken from `$EDITOR`. When that is unset, `vim` or `nano` is used if
   either is installed. When neither is, the user is told that no editor is known and
   nothing is opened.
-- The editor opens in a tmux pane to the right or the left of the OpenCode instance, right
-  by default.
+- The editor opens in a tmux pane to the right or the left of the OpenCode instance, or in a
+  window when that placement is asked for, right by default.
 - It opens a requested file, or an entire folder when that is asked for. With NERDTree
   installed, a folder opens with NERDTree active on it.
 - Focus moves to the editor by default, with an option to open it without taking focus for
@@ -72,8 +74,8 @@ tmux capabilities through tools, and teaches their use through skills.
   used. It is kept current as the work moves, with the split settled between the user and
   the agent.
 - A base `AGENTS.md` describing how to work in the repository, build, and test.
-- The repository stays private to start, published under a personal GitHub account, with
-  the remote named `github`.
+- The repository is public, published under a personal GitHub account, with the remote named
+  `github`.
 
 ## Repository hygiene and release
 
