@@ -1,3 +1,19 @@
 node_modules/
 *.log
 .superpowers/
+
+# Environment files
+.env
+.env.*
+*.local
+
+# Editor and OS leftovers
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Patch and merge leftovers
+*.orig
+*.rej
