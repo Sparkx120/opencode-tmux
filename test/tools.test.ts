@@ -602,7 +602,7 @@ describe("tmux_exec", () => {
     await registerTools(ctx, runner, EMPTY_ENV, execDeps)
 
     const result = await tools.get("tmux_exec")!.execute({ command: "echo hello", target: "%4" }, TEST_CONTEXT)
-    expect(result.content).toBe("hello\nworld")
+    expect(result.content).toBe("hello\nworld\n[tmux_exec: exit 0]")
     expect(assertCalls.length).toBe(1)
     expect(assertCalls[0]!.action).toBe("shell")
     expect(assertCalls[0]!.resources).toEqual(["echo hello"])
@@ -622,7 +622,7 @@ describe("tmux_exec", () => {
     await registerTools(ctx, runner, EMPTY_ENV, execDeps)
 
     const result = await tools.get("tmux_exec")!.execute({ command: "boom", target: "%4" }, TEST_CONTEXT)
-    expect(result.content).toBe("boom")
+    expect(result.content).toBe("boom\n[tmux_exec: exit 2]")
   })
 
   test("falls back to the raw capture with a note when the markers are missing", async () => {
@@ -635,6 +635,7 @@ describe("tmux_exec", () => {
     const result = await tools.get("tmux_exec")!.execute({ command: "ls", target: "%4" }, TEST_CONTEXT)
     expect(result.content).toContain("random\nraw\nlines")
     expect(result.content).toContain("could not locate the output boundaries")
+    expect(result.content).toContain("[tmux_exec: exit ?]")
   })
 
   test("creates a pane and reports it in the trailer", async () => {
@@ -651,7 +652,7 @@ describe("tmux_exec", () => {
     await registerTools(ctx, runner, EMPTY_ENV, execDeps)
 
     const result = await tools.get("tmux_exec")!.execute({ command: "echo hi", new: "pane" }, TEST_CONTEXT)
-    expect(result.content).toBe("out")
+    expect(result.content).toBe("out\n[tmux_exec: exit 0, pane %42]")
     expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
       "split-window",
       "-d",
@@ -683,7 +684,7 @@ describe("tmux_exec", () => {
     await registerTools(ctx, runner, EMPTY_ENV, execDeps)
 
     const result = await tools.get("tmux_exec")!.execute({ command: "echo hi", new: "window" }, TEST_CONTEXT)
-    expect(result.content).toBe("winout")
+    expect(result.content).toBe("winout\n[tmux_exec: exit 0, window @7]")
     expect(calls.find((argv) => argv[0] === "new-window")).toEqual([
       "new-window",
       "-d",

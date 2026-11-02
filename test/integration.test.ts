@@ -172,7 +172,10 @@ describe.skipIf(!enabled)("live tmux integration", () => {
         { command: "echo tmux_exec_marker", new: "pane", target: EXEC_SESSION, timeoutMs: 3000 },
         { sessionID: "ses", agent: "a", messageID: "m", id: "c" },
       )
+      // Only the command output, not the echoed command line, plus the trailer.
       expect(result.content).toContain("tmux_exec_marker")
+      expect(result.content).not.toContain("echo tmux_exec_marker")
+      expect(result.content).toMatch(/\[tmux_exec: exit 0, pane %\d+\]/)
     } finally {
       await cleanup()
     }

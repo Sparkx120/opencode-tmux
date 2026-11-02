@@ -128,6 +128,14 @@ function editSummary(editor: string, path: string, placement: string, nerdtree: 
   return `opened ${path} with ${editor} in a new ${where}${via}: ${id}`
 }
 
+// The fixed trailer that closes a tmux_exec result: the exit status, and the id
+// of the pane or window `new` created so the caller can close it.
+function execTrailer(exit: number | undefined, created: { kind: NewKind; id: string } | undefined): string {
+  const status = exit === undefined ? "exit ?" : `exit ${exit}`
+  const where = created ? `, ${created.kind} ${created.id}` : ""
+  return `[tmux_exec: ${status}${where}]`
+}
+
 function failure(argv: string[], message: string): { content: string } {
   return { content: `tmux ${argv[0]} failed: ${message}` }
 }
@@ -445,7 +453,7 @@ export async function registerTools(
     editor.add({
       name: "tmux_exec",
       description:
-        "Run a shell command in a tmux pane and return only its output. Load the `tmux` skill first. Input: command, optional new (pane|window), target, place, focus, timeoutMs. Refuses the agent's own pane.",
+        "Run a shell command in a tmux pane and return only its output, plus a trailer with the exit status and any pane/window created. Load the `tmux` skill first. Input: command, optional new (pane|window), target, place, focus, timeoutMs. Refuses the agent's own pane.",
       input: {
         type: "object",
         properties: {
@@ -486,6 +494,7 @@ export async function registerTools(
         // Resolve where the command runs before prompting: a stale target is
         // reported first, and an existing target must not be the anchor.
         let createArgv: string[] | undefined
+        let createKind: NewKind | undefined
         let runTarget = base
         if (args.new) {
           const kind: NewKind = args.new
@@ -506,6 +515,7 @@ export async function registerTools(
           } else {
             createArgv = newArgv(base, { kind, place: args.place as PanePlace | undefined, shell, focus: args.focus })
           }
+          createKind = kind
         } else {
           const paneId = await paneOf(base)
           if (!paneId) return { content: staleTarget(base) }
@@ -526,11 +536,13 @@ export async function registerTools(
         // Create detached, then type the bracketed command into the new pane or
         // window's own shell. Running the command as the pane process would
         // destroy the pane before its output could be read.
-        if (createArgv) {
+        let created: { kind: NewKind; id: string } | undefined
+        if (createArgv && createKind) {
           const res = await runner(createArgv)
           if (res.code !== 0) return failure(createArgv, res.message)
           runTarget = res.stdout.trim()
           if (!runTarget) return { content: "tmux_exec: the new pane or window did not report an id" }
+          created = { kind: createKind, id: runTarget }
         }
 
         const sentinel = marker()
@@ -557,10 +569,11 @@ export async function registerTools(
           // The markers were not both present (e.g. the begin marker scrolled
           // past the history limit): return the raw capture and say so.
           return {
-            content: `${extracted.text}\n(tmux_exec: could not locate the output boundaries; returning the raw capture)`,
+            content: `${extracted.text}\n(tmux_exec: could not locate the output boundaries; returning the raw capture)\n${execTrailer(extracted.exit, created)}`,
           }
         }
-        return { content: extracted.text.length > 0 ? extracted.text : "(no output)" }
+        const body = extracted.text.length > 0 ? extracted.text : "(no output)"
+        return { content: `${body}\n${execTrailer(extracted.exit, created)}` }
       },
     })
 

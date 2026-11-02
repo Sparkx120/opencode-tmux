@@ -74,9 +74,9 @@ Sends `text` to a pane, then a separate Enter when `enter` is true. The target m
 
 Input: `command`, optional `new` (`pane` or `window`), `target`, `place`, `focus`, `timeoutMs`.
 
-Runs a shell command in a tmux pane and returns only the command's output. Reach for it when you need a command's output, rather than typing into a pane by hand and capturing it separately.
+Runs a shell command in a tmux pane and returns only the command's output, followed by a trailer on its own line that carries the exit status and, when `new` was used, the id of the pane or window it created: `[tmux_exec: exit 0, pane %42]`, or `[tmux_exec: exit 0]` without `new`. Use the id to close a created pane or window with `tmux_kill`.
 
-The tool brackets the command with a unique sentinel and slices out the lines between the sentinels, so the echoed command line and the shell prompt are not returned. It captures the pane's whole scrollback (`capture-pane -S -`), not just the visible screen, so a long output does not lose the begin sentinel. Output longer than the pane's history limit (tmux's `history-limit`, 2000 lines by default) can still scroll the begin sentinel away; then the tool returns the raw capture with a note that the boundaries could not be located, rather than partial output.
+The tool brackets the command with a unique sentinel and slices out the lines between the sentinels, so the echoed command line and the shell prompt are not returned. It captures the pane's whole scrollback (`capture-pane -S -`), not just the visible screen, so a long output does not lose the begin sentinel. Output longer than the pane's history limit (tmux's `history-limit`, 2000 lines by default) can still scroll the begin sentinel away; then the tool returns the raw capture with a note that the boundaries could not be located and a trailer with an unknown exit, rather than partial output.
 
 - With `new`, it creates the pane or window first (detached by default; `place` and `focus` behave as in `tmux_new`) and runs the command in it. The new pane or window keeps its shell after the command finishes, so the output stays readable; close it with `tmux_kill` when you are done.
 - Without `new`, it runs in `target`, which must be an existing pane other than the agent's own. An omitted target resolves to the anchor and is refused.
