@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "opencode-tmux",
+  "version": "0.1.0",
+  "description": "OpenCode V2 plugin: lean tmux tools plus a tmux skill.",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opencode/plugin": "^2.0.24",
+    "@opencode/schema": "2.0.24"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "@types/node": "^22",
+    "typescript": "^5"
+  },
+  "engines": {
+    "opencode": ">=2"
+  }
+}
