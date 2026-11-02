@@ -17,22 +17,27 @@ import {
   type ResolvedEditor,
 } from "./editor.js"
 import {
-  bracketedCommand,
   captureArgv,
+  cleanExecCapture,
   contextArgv,
+  DEFAULT_EXEC_TIMEOUT_MS,
   DEFAULT_SHELL,
-  execMarker,
-  extractExecOutput,
+  execTimeoutTrailer,
+  execTrailer,
   killArgv,
   nameArgv,
   newArgv,
   PANE_PLACES,
+  paneDeadArgv,
+  paneDeadStatusArgv,
+  paneOptionArgv,
+  respawnArgv,
   run as defaultRun,
   sendKeysArgv,
   sessionForArgv,
   settleCapture,
   targetExistsArgv,
-  waitForExecOutput,
+  waitForPaneDead,
   WINDOW_PLACES,
   windowForArgv,
   type NewKind,
@@ -53,8 +58,6 @@ const REFUSE_ANCHOR_WINDOW =
 // Typing into the anchor drives the agent's own TUI, so the same guard applies.
 const REFUSE_ANCHOR_INPUT =
   "refusing to type into the anchor pane: it is the agent's own TUI, and there is no override. Pass the target of another pane."
-const REFUSE_ANCHOR_EXEC =
-  "refusing to run in the anchor pane: it is the agent's own TUI, and there is no override. Pass the target of another pane, or set `new` to create one."
 
 // The action name OpenCode's own shell tool uses (packages/core tool/plugin/shell.ts
 // sets `action: name` with `name = "shell"`), so the same permission rules apply.
@@ -104,15 +107,12 @@ function editorOption(ctx: Plugin.Context): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined
 }
 
-// Injectable edges for `tmux_edit` and `tmux_exec`: the NERDTree probe, the
-// directory check, and the per-call exec sentinel.
+// Injectable edges for `tmux_edit`: the NERDTree probe and the directory check.
 export interface ToolDeps {
   /** Runs a binary; defaults to a real exec. Used for the NERDTree probe. */
   exec?: EditorExec
   /** Whether a path is a directory; defaults to fs.statSync. */
   isDirectory?: (path: string) => boolean
-  /** Unique sentinel stem for tmux_exec; defaults to execMarker. */
-  marker?: () => string
 }
 
 function statIsDirectory(path: string): boolean {
@@ -127,14 +127,6 @@ function editSummary(editor: string, path: string, placement: string, nerdtree: 
   const where = placement === "window" ? "window" : `${placement} pane`
   const via = nerdtree ? " with NERDTree" : ""
   return `opened ${path} with ${editor} in a new ${where}${via}: ${id}`
-}
-
-// The fixed trailer that closes a tmux_exec result: the exit status, and the id
-// of the pane or window `new` created so the caller can close it.
-function execTrailer(exit: number | undefined, created: { kind: NewKind; id: string } | undefined): string {
-  const status = exit === undefined ? "exit ?" : `exit ${exit}`
-  const where = created ? `, ${created.kind} ${created.id}` : ""
-  return `[tmux_exec: ${status}${where}]`
 }
 
 function failure(argv: string[], message: string): { content: string } {
@@ -160,7 +152,6 @@ export async function registerTools(
       ? (await exec(resolvedEditor.command, NERD_TREE_PROBE_ARGS)) === 0
       : false
   const isDirectory = deps.isDirectory ?? statIsDirectory
-  const marker = deps.marker ?? execMarker
 
   // Resolve the anchor once: the session's location directory identifies its
   // pane, so a shared daemon's stale $TMUX_PANE does not win. A pinned pane
@@ -454,7 +445,7 @@ export async function registerTools(
     editor.add({
       name: "tmux_exec",
       description:
-        "Run a shell command in a tmux pane and return only its output, plus a trailer with the exit status and any pane/window created. Load the `tmux` skill first. Input: command, optional new (pane|window), target, place, focus, timeoutMs. Refuses the agent's own pane.",
+        "Run a shell command in a newly created tmux pane or window and return its output, plus a trailer with the exit status. The pane or window is closed afterwards; a command that outlives timeoutMs is left running and named in the trailer. Load the `tmux` skill first. Input: command, optional new (pane|window, default pane), place, focus, timeoutMs.",
       input: {
         type: "object",
         properties: {
@@ -462,16 +453,15 @@ export async function registerTools(
           new: {
             type: "string",
             enum: ["pane", "window"],
-            description: "Create a pane or window first and run the command there",
+            description: "What to create for the command: a pane (default) or a window",
           },
-          target: { type: "string", description: "Existing pane to run in; required unless `new` is set" },
           place: {
             type: "string",
             enum: [...PANE_PLACES, ...WINDOW_PLACES],
-            description: "Placement for `new`, as tmux_new: pane bottom/top/right/left, window after/before",
+            description: "Placement for the created pane or window, as tmux_new: pane bottom/top/right/left, window after/before",
           },
-          focus: { type: "boolean", description: "Activate a pane or window created by `new` (default false)" },
-          timeoutMs: { type: "integer", description: "Output poll timeout in milliseconds (default 800)" },
+          focus: { type: "boolean", description: "Activate the created pane or window (default false)" },
+          timeoutMs: { type: "integer", description: "How long to wait for the command before returning (default 800)" },
         },
         required: ["command"],
         additionalProperties: false,
@@ -480,7 +470,6 @@ export async function registerTools(
         const args = raw as {
           command?: string
           new?: string
-          target?: string
           place?: string
           focus?: boolean
           timeoutMs?: number
@@ -489,39 +478,17 @@ export async function registerTools(
         if (args.new !== undefined && args.new !== "pane" && args.new !== "window") {
           return { content: 'tmux_exec: new must be "pane" or "window"' }
         }
-        const base = target(args.target)
-        if (!base) return { content: NO_TARGET }
-
-        // Resolve where the command runs before prompting: a stale target is
-        // reported first, and an existing target must not be the anchor.
-        let createArgv: string[] | undefined
-        let createKind: NewKind | undefined
-        let runTarget = base
-        if (args.new) {
-          const kind: NewKind = args.new
-          const places: readonly string[] = kind === "pane" ? PANE_PLACES : WINDOW_PLACES
-          if (args.place !== undefined && !places.includes(args.place)) {
-            return { content: `tmux_exec: place for a ${kind} must be one of ${places.join(", ")}` }
-          }
-          if (!(await confirmed(base))) return { content: staleTarget(base) }
-          if (kind === "window") {
-            const session = await sessionOf(base)
-            if (!session) return { content: staleTarget(base) }
-            createArgv = newArgv(session, {
-              kind,
-              place: args.place as WindowPlace | undefined,
-              shell,
-              focus: args.focus,
-            })
-          } else {
-            createArgv = newArgv(base, { kind, place: args.place as PanePlace | undefined, shell, focus: args.focus })
-          }
-          createKind = kind
-        } else {
-          const paneId = await paneOf(base)
-          if (!paneId) return { content: staleTarget(base) }
-          if (await isAnchorPane(paneId)) return { content: REFUSE_ANCHOR_EXEC }
+        const kind: NewKind = args.new === "window" ? "window" : "pane"
+        const places: readonly string[] = kind === "pane" ? PANE_PLACES : WINDOW_PLACES
+        if (args.place !== undefined && !places.includes(args.place)) {
+          return { content: `tmux_exec: place for a ${kind} must be one of ${places.join(", ")}` }
         }
+
+        // The command always runs in a pane of its own, split from the anchor
+        // or placed in the anchor's session, so there is no target to pass.
+        const base = target(undefined)
+        if (!base) return { content: NO_TARGET }
+        if (!(await confirmed(base))) return { content: staleTarget(base) }
 
         // The raw command is the resource, so the per-command shell rules still
         // govern what actually runs; tmux_exec is not a way around them.
@@ -534,48 +501,80 @@ export async function registerTools(
           save: [args.command],
         })
 
-        // Create detached, then type the bracketed command into the new pane or
-        // window's own shell. Running the command as the pane process would
-        // destroy the pane before its output could be read.
-        let created: { kind: NewKind; id: string } | undefined
-        if (createArgv && createKind) {
-          const res = await runner(createArgv)
-          if (res.code !== 0) return failure(createArgv, res.message)
-          runTarget = res.stdout.trim()
-          if (!runTarget) return { content: "tmux_exec: the new pane or window did not report an id" }
-          created = { kind: createKind, id: runTarget }
+        // Create the pane or window with its shell, so a fast command cannot
+        // destroy it before the option set and the respawn have run.
+        let createArgv: string[]
+        if (kind === "window") {
+          const session = await sessionOf(base)
+          if (!session) return { content: staleTarget(base) }
+          createArgv = newArgv(session, { kind, place: args.place as WindowPlace | undefined, shell, focus: args.focus })
+        } else {
+          createArgv = newArgv(base, { kind, place: args.place as PanePlace | undefined, shell, focus: args.focus })
+        }
+        const created = await runner(createArgv)
+        if (created.code !== 0) return failure(createArgv, created.message)
+        const createdId = created.stdout.trim()
+        if (!createdId) return { content: "tmux_exec: the new pane or window did not report an id" }
+
+        // new-window reports a window id; the pane the command runs in is
+        // resolved from it.
+        const pane = kind === "window" ? await paneOf(createdId) : createdId
+        if (!pane) {
+          await runner(killArgv(kind, createdId))
+          return { content: "tmux_exec: could not resolve the pane in the new window" }
         }
 
-        const sentinel = marker()
-        const line = bracketedCommand(args.command, sentinel)
-        for (const argv of sendKeysArgv(runTarget, line, {})) {
-          const res = await runner(argv)
-          if (res.code !== 0) return failure(argv, res.message)
+        // Keep the pane after the command exits so its output stays readable,
+        // and suppress the dead-pane banner. The second option is best effort:
+        // an older tmux may not know it, and the banner is stripped anyway.
+        await runner(paneOptionArgv(pane, "remain-on-exit", "on"))
+        await runner(paneOptionArgv(pane, "remain-on-exit-format", ""))
+
+        // Run the command as the pane's own process; its output is the pane's
+        // content, with no echoed command line and no prompt.
+        const respawn = respawnArgv(pane, shell, args.command)
+        const run = await runner(respawn)
+        if (run.code !== 0) {
+          await runner(killArgv(kind, createdId))
+          return failure(respawn, run.message)
         }
 
-        // Capture the whole scrollback (`-S -`), not just the visible pane, so a
-        // long output does not scroll the begin marker out of the region. Wait
-        // for the end marker itself: a stable capture is not proof the command
-        // finished, so settleCapture would return too early.
-        const capture = captureArgv(runTarget, { start: "-" })
-        const timeoutMs = typeof args.timeoutMs === "number" ? args.timeoutMs : undefined
-        const extracted = await waitForExecOutput(
+        const timeoutMs = typeof args.timeoutMs === "number" ? args.timeoutMs : DEFAULT_EXEC_TIMEOUT_MS
+        const dead = await waitForPaneDead(
           async () => {
-            const res = await runner(capture)
-            return res.code === 0 ? res.stdout : `tmux capture-pane failed: ${res.message}`
+            const res = await runner(paneDeadArgv(pane))
+            return res.code === 0 ? res.stdout : "0"
           },
-          sentinel,
           { timeoutMs },
         )
-        if (!extracted.bounded) {
-          // The markers were not both present (e.g. the begin marker scrolled
-          // past the history limit): return the raw capture and say so.
-          return {
-            content: `${extracted.text}\n(tmux_exec: could not locate the output boundaries; returning the raw capture)\n${execTrailer(extracted.exit, created)}`,
-          }
+
+        if (!dead) {
+          // Still running: leave it alone, return what is capturable, and name
+          // the pane so the caller can kill it or keep watching.
+          const captured = await runner(captureArgv(pane, { start: "-" }))
+          const text = captured.code === 0 ? cleanExecCapture(captured.stdout) : ""
+          const body = text.length > 0 ? text : "(no output yet)"
+          return { content: `${body}\n${execTimeoutTrailer(timeoutMs, pane)}` }
         }
-        const body = extracted.text.length > 0 ? extracted.text : "(no output)"
-        return { content: `${body}\n${execTrailer(extracted.exit, created)}` }
+
+        // Dead: read the exit status and the output, then close the pane or
+        // window. The close runs even if a read fails, so nothing is orphaned.
+        let exit: number | undefined
+        let text = ""
+        try {
+          const status = await runner(paneDeadStatusArgv(pane))
+          if (status.code === 0) {
+            const code = Number.parseInt(status.stdout.trim(), 10)
+            if (!Number.isNaN(code)) exit = code
+          }
+          const captured = await runner(captureArgv(pane, { start: "-" }))
+          if (captured.code === 0) text = cleanExecCapture(captured.stdout)
+        } finally {
+          await runner(killArgv(kind, createdId))
+        }
+
+        const body = text.length > 0 ? text : "(no output)"
+        return { content: `${body}\n${execTrailer(exit)}` }
       },
     })
 

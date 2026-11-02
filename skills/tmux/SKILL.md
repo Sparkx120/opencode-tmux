@@ -60,9 +60,9 @@ Input: `kind` (`pane` or `window`), optional `target` (defaults to the agent pan
 
 Kills a pane or window. It refuses the agent's own pane, and refuses the window that contains it, with no override: killing either ends the session. A refusal is a plain message, not an error. The existence probe runs first, so a missing target gets the stale-target message. Use it to close a pane you created once it is no longer needed.
 
-The anchor guard is shared: `tmux_send` and `tmux_exec` also refuse the agent pane, because typing into it drives the agent's own TUI. Pass a target of another pane, or set `new` for `tmux_exec` to create one.
+The anchor guard is shared: `tmux_send` also refuses the agent pane, because typing into it drives the agent's own TUI. Pass a target of another pane.
 
-A pane whose process is a one-shot command closes when that command exits, so its output is gone; this is why `tmux_exec` runs its command in the pane's shell rather than as the pane's process.
+`tmux_exec` targets no pane at all: it creates its own, so it splits the anchor rather than typing into it.
 
 ### `tmux_send`
 
@@ -72,16 +72,15 @@ Sends `text` to a pane, then a separate Enter when `enter` is true. The target m
 
 ### `tmux_exec`
 
-Input: `command`, optional `new` (`pane` or `window`), `target`, `place`, `focus`, `timeoutMs`.
+Input: `command`, optional `new` (`pane` or `window`, default `pane`), `place`, `focus`, `timeoutMs`.
 
-Runs a shell command in a tmux pane and returns only the command's output, followed by a trailer on its own line that carries the exit status and, when `new` was used, the id of the pane or window it created: `[tmux_exec: exit 0, pane %42]`, or `[tmux_exec: exit 0]` without `new`. Use the id to close a created pane or window with `tmux_kill`.
+Runs a shell command in a pane of its own and returns only the command's output, followed by a trailer on its own line with the real exit status: `[tmux_exec: exit 0]`. Nothing is typed into any pane, so there is no echoed command line and no shell prompt to slice out.
 
-The tool brackets the command with a unique sentinel and slices out the lines between the sentinels, so the echoed command line and the shell prompt are not returned. It waits for the end sentinel to appear rather than for the capture to stop changing, so a command is not cut off while a fresh pane is momentarily idle. It captures the pane's whole scrollback (`capture-pane -S -`), not just the visible screen, so a long output does not lose the begin sentinel. Output longer than the pane's history limit (tmux's `history-limit`, 2000 lines by default) can still scroll the begin sentinel away; then the tool returns the raw capture with a note that the boundaries could not be located and a trailer with an unknown exit, rather than partial output.
+The tool creates a pane, split from the anchor pane (or a window in the anchor's session with `new: window`), then runs the command as that pane's process. It sets `remain-on-exit` on the pane first, so the pane survives the command's exit just long enough to read the output and tmux's own exit status, and then closes the pane or window. Nothing is left behind on the success path. `place` and `focus` behave as in `tmux_new`.
 
-- With `new`, it creates the pane or window first (detached by default; `place` and `focus` behave as in `tmux_new`) and runs the command in it. The new pane or window keeps its shell after the command finishes, so the output stays readable; close it with `tmux_kill` when you are done.
-- Without `new`, it runs in `target`, which must be an existing pane other than the agent's own. An omitted target resolves to the anchor and is refused.
+`timeoutMs` bounds how long the tool waits for the command (default 800 ms). A command that outlives it is left running and its pane is not closed; the trailer names the pane so you can keep watching it or close it: `[tmux_exec: still running after 800ms, pane %42]`.
 
-`timeoutMs` bounds the output poll (default 800 ms). The command goes through the shell permission gate with the raw command as the resource, so the usual shell rules still govern it; `tmux_exec` is not a way around them. A pane whose own process is the command (as with `tmux_new`'s `command`) closes the moment that command exits, taking its output with it; that is why `tmux_exec` runs the command in the pane's shell instead.
+The command goes through the shell permission gate with the raw command as the resource, so the usual shell rules still govern it; `tmux_exec` is not a way around them.
 
 ### `tmux_capture`
 
