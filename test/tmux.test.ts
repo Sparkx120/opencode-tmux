@@ -3,13 +3,14 @@ import {
   captureArgv,
   CONTEXT_FORMAT,
   contextArgv,
+  killArgv,
   nameArgv,
-  newPaneArgv,
-  newWindowArgv,
+  newArgv,
   sendKeysArgv,
   settleCapture,
   sessionForArgv,
   targetExistsArgv,
+  windowForArgv,
 } from "../src/tmux.js"
 
 describe("contextArgv", () => {
@@ -41,9 +42,9 @@ describe("nameArgv", () => {
   })
 })
 
-describe("newPaneArgv", () => {
-  test("defaults to a vertical split and prints the pane id", () => {
-    expect(newPaneArgv("%6", {})).toEqual([
+describe("newArgv", () => {
+  test("the default pane split matches the old detached vertical split", () => {
+    expect(newArgv("%6", { kind: "pane" })).toEqual([
       "split-window",
       "-d",
       "-P",
@@ -55,8 +56,29 @@ describe("newPaneArgv", () => {
     ])
   })
 
-  test("horizontal split uses -h", () => {
-    expect(newPaneArgv("%6", { vertical: false })).toEqual([
+  test("maps every pane place", () => {
+    expect(newArgv("%6", { kind: "pane", place: "bottom" })).toEqual([
+      "split-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-v",
+    ])
+    expect(newArgv("%6", { kind: "pane", place: "top" })).toEqual([
+      "split-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-v",
+      "-b",
+    ])
+    expect(newArgv("%6", { kind: "pane", place: "right" })).toEqual([
       "split-window",
       "-d",
       "-P",
@@ -66,10 +88,60 @@ describe("newPaneArgv", () => {
       "%6",
       "-h",
     ])
+    expect(newArgv("%6", { kind: "pane", place: "left" })).toEqual([
+      "split-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-h",
+      "-b",
+    ])
   })
 
-  test("wraps a shell command in `sh -c`", () => {
-    expect(newPaneArgv("%6", { vertical: true, command: "htop" })).toEqual([
+  test("passes a pane size to -l after the place", () => {
+    expect(newArgv("%6", { kind: "pane", size: "20" })).toEqual([
+      "split-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-v",
+      "-l",
+      "20",
+    ])
+    expect(newArgv("%6", { kind: "pane", place: "right", size: "30%" })).toEqual([
+      "split-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-h",
+      "-l",
+      "30%",
+    ])
+  })
+
+  test("focus omits -d so the new pane becomes active", () => {
+    expect(newArgv("%6", { kind: "pane", focus: true })).toEqual([
+      "split-window",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-v",
+    ])
+  })
+
+  test("wraps a pane command in the configured shell", () => {
+    expect(newArgv("%6", { kind: "pane", command: "htop" })).toEqual([
       "split-window",
       "-d",
       "-P",
@@ -82,10 +154,7 @@ describe("newPaneArgv", () => {
       "-c",
       "htop",
     ])
-  })
-
-  test("honors a custom shell", () => {
-    expect(newPaneArgv("%6", { command: "echo hi", shell: "bash" })).toEqual([
+    expect(newArgv("%6", { kind: "pane", command: "echo hi", shell: "bash" })).toEqual([
       "split-window",
       "-d",
       "-P",
@@ -99,11 +168,9 @@ describe("newPaneArgv", () => {
       "echo hi",
     ])
   })
-})
 
-describe("newWindowArgv", () => {
-  test("targets a session and prints the window id", () => {
-    expect(newWindowArgv("$3:", {})).toEqual([
+  test("the default window targets a session and inserts after", () => {
+    expect(newArgv("$3:", { kind: "window" })).toEqual([
       "new-window",
       "-d",
       "-P",
@@ -111,11 +178,12 @@ describe("newWindowArgv", () => {
       "#{window_id}",
       "-t",
       "$3:",
+      "-a",
     ])
   })
 
-  test("adds -n for a name and the shell-wrapped command last", () => {
-    expect(newWindowArgv("$3:", { name: "logs", command: "tail -f app.log" })).toEqual([
+  test("maps window place, name, command, and focus", () => {
+    expect(newArgv("$3:", { kind: "window", place: "before" })).toEqual([
       "new-window",
       "-d",
       "-P",
@@ -123,16 +191,21 @@ describe("newWindowArgv", () => {
       "#{window_id}",
       "-t",
       "$3:",
+      "-b",
+    ])
+    expect(newArgv("$3:", { kind: "window", name: "logs" })).toEqual([
+      "new-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{window_id}",
+      "-t",
+      "$3:",
+      "-a",
       "-n",
       "logs",
-      "sh",
-      "-c",
-      "tail -f app.log",
     ])
-  })
-
-  test("honors a custom shell", () => {
-    expect(newWindowArgv("$3:", { command: "echo hi", shell: "bash" })).toEqual([
+    expect(newArgv("$3:", { kind: "window", command: "echo hi" })).toEqual([
       "new-window",
       "-d",
       "-P",
@@ -140,10 +213,33 @@ describe("newWindowArgv", () => {
       "#{window_id}",
       "-t",
       "$3:",
-      "bash",
+      "-a",
+      "sh",
       "-c",
       "echo hi",
     ])
+    expect(newArgv("$3:", { kind: "window", focus: true })).toEqual([
+      "new-window",
+      "-P",
+      "-F",
+      "#{window_id}",
+      "-t",
+      "$3:",
+      "-a",
+    ])
+  })
+})
+
+describe("killArgv", () => {
+  test("kills a pane or a window by target", () => {
+    expect(killArgv("pane", "%6")).toEqual(["kill-pane", "-t", "%6"])
+    expect(killArgv("window", "@1")).toEqual(["kill-window", "-t", "@1"])
+  })
+})
+
+describe("windowForArgv", () => {
+  test("asks tmux for the window id of a target", () => {
+    expect(windowForArgv("%6")).toEqual(["display-message", "-p", "-t", "%6", "-F", "#{window_id}"])
   })
 })
 

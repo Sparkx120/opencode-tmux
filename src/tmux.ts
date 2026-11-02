@@ -53,38 +53,86 @@ export function nameArgv(kind: "pane" | "window", target: string, name: string):
 
 export const DEFAULT_SHELL = "sh"
 
-export interface NewPaneOptions {
-  /** true splits below (tmux -v), false splits to the side (-h). Defaults true. */
-  vertical?: boolean
-  command?: string
-  /** Shell used to run `command` as `<shell> -c command`. Defaults to "sh". */
-  shell?: string
+export type NewKind = "pane" | "window"
+
+export const PANE_PLACES = ["bottom", "top", "right", "left"] as const
+export const WINDOW_PLACES = ["after", "before"] as const
+export type PanePlace = (typeof PANE_PLACES)[number]
+export type WindowPlace = (typeof WINDOW_PLACES)[number]
+
+// `-v` splits above/below, `-h` splits left/right; `-b` places the new pane
+// above or to the left of the target instead of below or to the right.
+function panePlaceFlags(place: PanePlace | undefined): string[] {
+  switch (place ?? "bottom") {
+    case "top":
+      return ["-v", "-b"]
+    case "right":
+      return ["-h"]
+    case "left":
+      return ["-h", "-b"]
+    default:
+      return ["-v"]
+  }
 }
 
-// split-window has no pane-name flag: the caller names the pane afterwards
-// with select-pane -T against the returned id. A command is wrapped in a shell
-// so pipes, redirects, &&, and globs reach the pane intact.
-export function newPaneArgv(target: string, opts: NewPaneOptions = {}): string[] {
-  const argv = ["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", target, opts.vertical === false ? "-h" : "-v"]
-  if (opts.command) argv.push(opts.shell ?? DEFAULT_SHELL, "-c", opts.command)
-  return argv
+// `-a` inserts the window after the target window, `-b` before it. tmux's
+// no-flag default appends at the end, so `after` must pass `-a` explicitly.
+function windowPlaceFlags(place: WindowPlace | undefined): string[] {
+  return place === "before" ? ["-b"] : ["-a"]
 }
 
-export interface NewWindowOptions {
+export interface NewArgvOptions {
+  kind: NewKind
+  place?: PanePlace | WindowPlace
+  /** Pane only, passed to `-l`: tmux's own forms (`20`, `30%`). */
+  size?: string
   name?: string
   command?: string
   /** Shell used to run `command` as `<shell> -c command`. Defaults to "sh". */
   shell?: string
+  /** Default false (detached); true activates the new pane or window. */
+  focus?: boolean
 }
 
-// `target` must be a session (e.g. `$3:`), not a pane or window: tmux 3.8
-// rejects a pane here ("can't specify pane here") and a bare window id tries to
-// reuse a window index. The caller resolves the session first.
-export function newWindowArgv(target: string, opts: NewWindowOptions = {}): string[] {
-  const argv = ["new-window", "-d", "-P", "-F", "#{window_id}", "-t", target]
+// One builder for both kinds. split-window has no pane-name flag: the caller
+// names the pane afterwards with select-pane -T against the returned id.
+export function newArgv(target: string, opts: NewArgvOptions): string[] {
+  const detached = opts.focus === true ? [] : ["-d"]
+  const shell = opts.shell ?? DEFAULT_SHELL
+  if (opts.kind === "pane") {
+    const argv = [
+      "split-window",
+      ...detached,
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      target,
+      ...panePlaceFlags(opts.place as PanePlace | undefined),
+    ]
+    if (opts.size) argv.push("-l", opts.size)
+    if (opts.command) argv.push(shell, "-c", opts.command)
+    return argv
+  }
+  // `target` must be a session (e.g. `$3:`): tmux 3.8 rejects a pane here
+  // ("can't specify pane here"). The caller resolves the session first.
+  const argv = [
+    "new-window",
+    ...detached,
+    "-P",
+    "-F",
+    "#{window_id}",
+    "-t",
+    target,
+    ...windowPlaceFlags(opts.place as WindowPlace | undefined),
+  ]
   if (opts.name) argv.push("-n", opts.name)
-  if (opts.command) argv.push(opts.shell ?? DEFAULT_SHELL, "-c", opts.command)
+  if (opts.command) argv.push(shell, "-c", opts.command)
   return argv
+}
+
+export function killArgv(kind: NewKind, target: string): string[] {
+  return [kind === "pane" ? "kill-pane" : "kill-window", "-t", target]
 }
 
 export interface SendOptions {
@@ -116,6 +164,11 @@ export function targetExistsArgv(target: string): string[] {
 
 export function sessionForArgv(target: string): string[] {
   return ["display-message", "-p", "-t", target, "-F", "#{session_id}:"]
+}
+
+// The window that contains a target pane (or the target window itself).
+export function windowForArgv(target: string): string[] {
+  return ["display-message", "-p", "-t", target, "-F", "#{window_id}"]
 }
 
 export interface CaptureOptions {

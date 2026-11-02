@@ -9,19 +9,32 @@ import {
   captureArgv,
   contextArgv,
   DEFAULT_SHELL,
+  killArgv,
   nameArgv,
-  newPaneArgv,
-  newWindowArgv,
+  newArgv,
+  PANE_PLACES,
   run as defaultRun,
   sendKeysArgv,
   sessionForArgv,
   settleCapture,
   targetExistsArgv,
+  WINDOW_PLACES,
+  windowForArgv,
+  type NewKind,
+  type PanePlace,
+  type WindowPlace,
 } from "./tmux.js"
 import type { Runner } from "./tmux.js"
 
 const NO_TARGET =
   "no tmux target available: pass a target, set the plugin `pane` option, or run inside tmux with $TMUX_PANE set"
+
+// The anchor is the agent's own pane; killing it, or its window, would end the
+// session, so the guard is absolute. A plain message, not an error.
+const REFUSE_ANCHOR_PANE =
+  "refusing to kill the anchor pane: it is the agent's own pane, and there is no override. Pass a different target."
+const REFUSE_ANCHOR_WINDOW =
+  "refusing to kill the window containing the anchor pane: it holds the agent's own pane, and there is no override. Pass a different target."
 
 // The action name OpenCode's own shell tool uses (packages/core tool/plugin/shell.ts
 // sets `action: name` with `name = "shell"`), so the same permission rules apply.
@@ -88,10 +101,21 @@ export async function registerTools(
 
   // The resolved target can be a stale $TMUX_PANE the daemon inherited. Probe
   // it before acting so a dead anchor fails clearly instead of with a raw tmux
-  // error.
-  const confirmed = async (resolved: string): Promise<boolean> => {
+  // error. The probe echoes the pane id, which the anchor guard also needs.
+  const paneOf = async (resolved: string): Promise<string | undefined> => {
     const res = await runner(targetExistsArgv(resolved))
-    return res.code === 0 && res.stdout.trim() !== ""
+    if (res.code !== 0) return undefined
+    const id = res.stdout.trim()
+    return id.length > 0 ? id : undefined
+  }
+  const confirmed = async (resolved: string): Promise<boolean> => (await paneOf(resolved)) !== undefined
+
+  // The window a pane lives in, or the window a window target names.
+  const windowOf = async (resolved: string): Promise<string | undefined> => {
+    const res = await runner(windowForArgv(resolved))
+    if (res.code !== 0) return undefined
+    const id = res.stdout.trim()
+    return id.length > 0 ? id : undefined
   }
 
   // new-window wants a target-window, and a pane is not one. Resolve the pane
@@ -166,24 +190,85 @@ export async function registerTools(
     })
 
     editor.add({
-      name: "tmux_new_pane",
+      name: "tmux_new",
       description:
-        "Create a pane. Load the `tmux` skill first. Input: optional target, name, command, vertical. Returns the new pane id.",
+        "Create a pane or window in the agent's session. Load the `tmux` skill first. Input: kind (pane|window), optional target, name, command, place, size (pane only), focus.",
       input: {
         type: "object",
         properties: {
-          target: { type: "string", description: "Pane to split; defaults to the agent pane" },
-          name: { type: "string", description: "Pane title to set after creation" },
-          command: { type: "string", description: "Shell command to run in the new pane" },
-          vertical: { type: "boolean", description: "true splits below (default), false splits to the side" },
+          kind: { type: "string", enum: ["pane", "window"], description: "What to create" },
+          target: {
+            type: "string",
+            description: "Pane to split, or window whose session anchors a new window; defaults to the agent pane",
+          },
+          name: { type: "string", description: "Pane title or window name" },
+          command: { type: "string", description: "Shell command to run in the new pane or window" },
+          place: {
+            type: "string",
+            enum: [...PANE_PLACES, ...WINDOW_PLACES],
+            description: "Pane: bottom (default), top, right, left. Window: after (default), before",
+          },
+          size: { type: "string", description: "Pane only: tmux size for -l, e.g. 20 or 30%; rejected for a window" },
+          focus: { type: "boolean", description: "Activate the new pane or window (default false: detached)" },
         },
+        required: ["kind"],
         additionalProperties: false,
       },
       execute: async (raw, context) => {
-        const args = raw as { target?: string; name?: string; command?: string; vertical?: boolean }
+        const args = raw as {
+          kind?: string
+          target?: string
+          name?: string
+          command?: string
+          place?: string
+          size?: string
+          focus?: boolean
+        }
+        if (args.kind !== "pane" && args.kind !== "window") {
+          return { content: 'tmux_new: kind must be "pane" or "window"' }
+        }
+        const kind: NewKind = args.kind
+        if (kind === "window" && args.size !== undefined) {
+          return { content: "tmux_new: size is not valid for a window; a window takes its size from the client" }
+        }
+        const places: readonly string[] = kind === "pane" ? PANE_PLACES : WINDOW_PLACES
+        if (args.place !== undefined && !places.includes(args.place)) {
+          return { content: `tmux_new: place for a ${kind} must be one of ${places.join(", ")}` }
+        }
         const resolved = target(args.target)
         if (!resolved) return { content: NO_TARGET }
         if (!(await confirmed(resolved))) return { content: staleTarget(resolved) }
+
+        const opts = {
+          kind,
+          place: args.place as PanePlace | WindowPlace | undefined,
+          size: args.size,
+          name: args.name,
+          command: args.command,
+          shell,
+          focus: args.focus,
+        }
+
+        if (kind === "window") {
+          const session = await sessionOf(resolved)
+          if (!session) return { content: staleTarget(resolved) }
+          if (args.command) {
+            await ctx.permission.assert({
+              sessionID: context.sessionID,
+              agent: context.agent,
+              source: { type: "tool", messageID: context.messageID, id: context.id },
+              action: SHELL_ACTION,
+              resources: [args.command],
+              save: [args.command],
+            })
+          }
+          const argv = newArgv(session, opts)
+          const res = await runner(argv)
+          if (res.code !== 0) return failure(argv, res.message)
+          const id = res.stdout.trim()
+          return { content: `created window ${id}${args.name ? ` named ${args.name}` : ""}` }
+        }
+
         if (args.command) {
           await ctx.permission.assert({
             sessionID: context.sessionID,
@@ -194,54 +279,57 @@ export async function registerTools(
             save: [args.command],
           })
         }
-        const argv = newPaneArgv(resolved, { vertical: args.vertical, command: args.command, shell })
+        const argv = newArgv(resolved, opts)
         const res = await runner(argv)
         if (res.code !== 0) return failure(argv, res.message)
         const id = res.stdout.trim()
         if (args.name) {
-          const nameArgvFull = nameArgv("pane", id, args.name)
-          const nameRes = await runner(nameArgvFull)
-          if (nameRes.code !== 0) return failure(nameArgvFull, nameRes.message)
+          const renameArgv = nameArgv("pane", id, args.name)
+          const renameRes = await runner(renameArgv)
+          if (renameRes.code !== 0) return failure(renameArgv, renameRes.message)
         }
         return { content: `created pane ${id}${args.name ? ` named ${args.name}` : ""}` }
       },
     })
 
     editor.add({
-      name: "tmux_new_window",
+      name: "tmux_kill",
       description:
-        "Create a window in the agent's session. Load the `tmux` skill first. Input: optional target, name, command. Returns the new window id.",
+        "Kill a pane or window. Refuses the agent's own pane or the window holding it. Load the `tmux` skill first. Input: kind (pane|window), optional target (defaults to the agent pane).",
       input: {
         type: "object",
         properties: {
-          target: { type: "string", description: "Session or window to anchor the new window; defaults to the agent pane" },
-          name: { type: "string", description: "Window name" },
-          command: { type: "string", description: "Shell command to run in the new window" },
+          kind: { type: "string", enum: ["pane", "window"], description: "What to kill" },
+          target: { type: "string", description: "Pane or window target; defaults to the agent pane" },
         },
+        required: ["kind"],
         additionalProperties: false,
       },
-      execute: async (raw, context) => {
-        const args = raw as { target?: string; name?: string; command?: string }
+      execute: async (raw) => {
+        const args = raw as { kind?: string; target?: string }
+        if (args.kind !== "pane" && args.kind !== "window") {
+          return { content: 'tmux_kill: kind must be "pane" or "window"' }
+        }
+        const kind: NewKind = args.kind
         const resolved = target(args.target)
         if (!resolved) return { content: NO_TARGET }
-        if (!(await confirmed(resolved))) return { content: staleTarget(resolved) }
-        const session = await sessionOf(resolved)
-        if (!session) return { content: staleTarget(resolved) }
-        if (args.command) {
-          await ctx.permission.assert({
-            sessionID: context.sessionID,
-            agent: context.agent,
-            source: { type: "tool", messageID: context.messageID, id: context.id },
-            action: SHELL_ACTION,
-            resources: [args.command],
-            save: [args.command],
-          })
+        const paneId = await paneOf(resolved)
+        if (!paneId) return { content: staleTarget(resolved) }
+        const anchorPane = anchor.target ? await paneOf(anchor.target) : undefined
+
+        if (kind === "pane") {
+          if (anchorPane && paneId === anchorPane) return { content: REFUSE_ANCHOR_PANE }
+        } else {
+          const targetWindow = await windowOf(resolved)
+          if (!targetWindow) return { content: staleTarget(resolved) }
+          const anchorWindow = anchorPane ? await windowOf(anchorPane) : undefined
+          if (anchorWindow && targetWindow === anchorWindow) return { content: REFUSE_ANCHOR_WINDOW }
         }
-        const argv = newWindowArgv(session, { name: args.name, command: args.command, shell })
+
+        const argv = killArgv(kind, resolved)
         const res = await runner(argv)
         if (res.code !== 0) return failure(argv, res.message)
-        const id = res.stdout.trim()
-        return { content: `created window ${id}${args.name ? ` named ${args.name}` : ""}` }
+        return { content: `killed ${kind} ${resolved}` }
       },
     })
 

@@ -2,7 +2,7 @@
 // needs a running tmux server and creates throwaway sessions.
 
 import { describe, expect, test } from "bun:test"
-import { newWindowArgv, run, sendKeysArgv, sessionForArgv } from "../src/tmux.js"
+import { killArgv, newArgv, run, sendKeysArgv, sessionForArgv } from "../src/tmux.js"
 
 const enabled = process.env.OPENCODE_TMUX_TEST === "1"
 const SESSION = "ocprobe-int"
@@ -70,12 +70,34 @@ describe.skipIf(!enabled)("live tmux integration", () => {
       const session = sessionRes.stdout.trim()
       expect(session).toMatch(/^\$/)
 
-      const windowRes = await run(newWindowArgv(session, {}))
+      const windowRes = await run(newArgv(session, { kind: "window" }))
       expect(windowRes.code).toBe(0)
       const windowId = windowRes.stdout.trim()
       expect(windowId.startsWith("@")).toBe(true)
 
       await run(["kill-window", "-t", windowId])
+    } finally {
+      await cleanup()
+    }
+  })
+
+  // tmux_new and tmux_kill, through the builders.
+  test("tmux_new creates a pane and tmux_kill removes it", async () => {
+    const NEW_SESSION = "ocprobe-new"
+    const cleanup = async () => {
+      await run(["kill-session", "-t", NEW_SESSION])
+    }
+    try {
+      const created = await run(["new-session", "-d", "-s", NEW_SESSION, "-x", "80", "-y", "24"])
+      expect(created.code).toBe(0)
+
+      const pane = await run(newArgv(NEW_SESSION, { kind: "pane" }))
+      expect(pane.code).toBe(0)
+      const paneId = pane.stdout.trim()
+      expect(paneId.startsWith("%")).toBe(true)
+
+      const killed = await run(killArgv("pane", paneId))
+      expect(killed.code).toBe(0)
     } finally {
       await cleanup()
     }

@@ -58,10 +58,15 @@ const TEST_CONTEXT = { sessionID: "ses_test", agent: "build", messageID: "msg_x"
 const ok = (stdout: string): RunResult => ({ stdout, stderr: "", code: 0, message: "" })
 const bad = (message: string): RunResult => ({ stdout: "", stderr: message, code: 1, message })
 
-// The stale-anchor probe is the display-message that asks for #{pane_id}; the
-// session probe asks for #{session_id}; the anchor heuristic lists panes.
+// The probes are display-messages distinguished by their format; the anchor
+// heuristic lists panes.
+const targetOf = (argv: string[]) => {
+  const i = argv.indexOf("-t")
+  return i >= 0 ? (argv[i + 1] ?? "") : ""
+}
 const isProbe = (argv: string[]) => argv[0] === "display-message" && argv[argv.length - 1] === "#{pane_id}"
 const isSessionProbe = (argv: string[]) => argv[0] === "display-message" && argv[argv.length - 1] === "#{session_id}:"
+const isWindowProbe = (argv: string[]) => argv[0] === "display-message" && argv[argv.length - 1] === "#{window_id}"
 const isPaneList = (argv: string[]) => argv[0] === "list-panes"
 
 function tmuxRunner(respond: (argv: string[]) => RunResult): { runner: Runner; calls: string[][] } {
@@ -73,18 +78,24 @@ function tmuxRunner(respond: (argv: string[]) => RunResult): { runner: Runner; c
   return { runner, calls }
 }
 
-// Default responder: the anchor exists, its session resolves, every other
-// command succeeds.
+// Default responder: the pane probe echoes the target pane id, the session and
+// window probes answer for it, every other command succeeds.
 const anchorExists = (stdout = "%9\n") => (argv: string[]) =>
-  isProbe(argv) ? ok("%6\n") : isSessionProbe(argv) ? ok("$3:\n") : ok(stdout)
+  isProbe(argv)
+    ? ok(`${targetOf(argv)}\n`)
+    : isSessionProbe(argv)
+      ? ok("$3:\n")
+      : isWindowProbe(argv)
+        ? ok(`${targetOf(argv).startsWith("@") ? targetOf(argv) : "@3"}\n`)
+        : ok(stdout)
 
 const TMUX_DIR = "/srv/work/app"
 const PANE_LIST = ["%6\topencode\t/srv/other/tool", `%10\topencode\t${TMUX_DIR}`].join(
   "\n",
 )
 
-// Responder for the directory heuristic: answers the pane list plus the
-// existence/session probes, with a configurable probe target.
+// Responder for the directory heuristic: answers the pane list plus the probes,
+// with a configurable probe target.
 const withPaneList = (probeTarget = "%10\n") => (argv: string[]) =>
   isPaneList(argv)
     ? ok(`${PANE_LIST}\n`)
@@ -92,11 +103,13 @@ const withPaneList = (probeTarget = "%10\n") => (argv: string[]) =>
       ? ok(probeTarget)
       : isSessionProbe(argv)
         ? ok("$3:\n")
-        : argv[0] === "display-message"
-          ? ok("sess:0.1 pane_id=%10 title=x cmd=opencode\n")
-          : ok("%9\n")
+        : isWindowProbe(argv)
+          ? ok("@3\n")
+          : argv[0] === "display-message"
+            ? ok("sess:0.1 pane_id=%10 title=x cmd=opencode\n")
+            : ok("%9\n")
 
-const NAMES = ["tmux_context", "tmux_name", "tmux_new_pane", "tmux_new_window", "tmux_send", "tmux_capture"]
+const NAMES = ["tmux_context", "tmux_new", "tmux_kill", "tmux_name", "tmux_send", "tmux_capture"]
 
 describe("registerTools", () => {
   test("registers exactly the six tmux tools", async () => {
@@ -134,6 +147,8 @@ describe("registerTools", () => {
     expect(send.content).toContain("no tmux target")
     const capture = await tools.get("tmux_capture")!.execute({}, TEST_CONTEXT)
     expect(capture.content).toContain("no tmux target")
+    const kill = await tools.get("tmux_kill")!.execute({ kind: "pane" }, TEST_CONTEXT)
+    expect(kill.content).toContain("no tmux target")
     expect(calls.length).toBe(0)
   })
 
@@ -149,12 +164,12 @@ describe("registerTools", () => {
     expect(sends[1]).toEqual(["send-keys", "-t", "%6", "Enter"])
   })
 
-  test("tmux_new_pane returns the new pane id and names it", async () => {
+  test("tmux_new creates and names a detached pane", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" })
     const { runner, calls } = tmuxRunner(anchorExists("%42\n"))
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    const result = await tools.get("tmux_new_pane")!.execute({ name: "worker" }, TEST_CONTEXT)
+    const result = await tools.get("tmux_new")!.execute({ kind: "pane", name: "worker" }, TEST_CONTEXT)
     expect(result.content).toContain("%42")
     expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
       "split-window",
@@ -169,12 +184,49 @@ describe("registerTools", () => {
     expect(calls.find((argv) => argv[0] === "select-pane")).toEqual(["select-pane", "-t", "%42", "-T", "worker"])
   })
 
-  test("tmux_new_pane runs a command through the configured shell", async () => {
+  test("tmux_new maps pane place and size", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner(anchorExists("%42\n"))
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    await tools.get("tmux_new")!.execute({ kind: "pane", place: "right", size: "30%" }, TEST_CONTEXT)
+    expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
+      "split-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-h",
+      "-l",
+      "30%",
+    ])
+  })
+
+  test("tmux_new focuses a pane when asked", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner(anchorExists("%42\n"))
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    await tools.get("tmux_new")!.execute({ kind: "pane", focus: true }, TEST_CONTEXT)
+    expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
+      "split-window",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-v",
+    ])
+  })
+
+  test("tmux_new runs a pane command through the configured shell", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6", shell: "bash" })
     const { runner, calls } = tmuxRunner(anchorExists("%42\n"))
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    await tools.get("tmux_new_pane")!.execute({ command: "ls | wc -l" }, TEST_CONTEXT)
+    await tools.get("tmux_new")!.execute({ kind: "pane", command: "ls | wc -l" }, TEST_CONTEXT)
     expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
       "split-window",
       "-d",
@@ -190,12 +242,13 @@ describe("registerTools", () => {
     ])
   })
 
-  test("tmux_new_window resolves the session and runs the command through sh", async () => {
+  test("tmux_new resolves the session and creates a named window", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" })
     const { runner, calls } = tmuxRunner(anchorExists("@7\n"))
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    await tools.get("tmux_new_window")!.execute({ command: "echo hi" }, TEST_CONTEXT)
+    const result = await tools.get("tmux_new")!.execute({ kind: "window", name: "logs" }, TEST_CONTEXT)
+    expect(result.content).toContain("@7")
     expect(calls.find(isSessionProbe)).toEqual(["display-message", "-p", "-t", "%6", "-F", "#{session_id}:"])
     expect(calls.find((argv) => argv[0] === "new-window")).toEqual([
       "new-window",
@@ -205,32 +258,91 @@ describe("registerTools", () => {
       "#{window_id}",
       "-t",
       "$3:",
-      "sh",
-      "-c",
-      "echo hi",
+      "-a",
+      "-n",
+      "logs",
     ])
   })
 
-  test("tmux_new_window reports when the session cannot be resolved", async () => {
+  test("tmux_new rejects a window size", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner(anchorExists())
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_new")!.execute({ kind: "window", size: "20" }, TEST_CONTEXT)
+    expect(result.content).toContain("size")
+    expect(calls.some((argv) => argv[0] === "new-window")).toBe(false)
+  })
+
+  test("tmux_new rejects an unknown kind or place", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
+
+    const kind = await tools.get("tmux_new")!.execute({ kind: "pane2" }, TEST_CONTEXT)
+    expect(kind.content).toContain("kind")
+    const place = await tools.get("tmux_new")!.execute({ kind: "pane", place: "after" }, TEST_CONTEXT)
+    expect(place.content).toContain("place")
+  })
+
+  test("tmux_new reports when the window session cannot be resolved", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" })
     const { runner, calls } = tmuxRunner((argv) =>
       isProbe(argv) ? ok("%6\n") : isSessionProbe(argv) ? bad("no session") : ok("@7\n"),
     )
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    const result = await tools.get("tmux_new_window")!.execute({}, TEST_CONTEXT)
+    const result = await tools.get("tmux_new")!.execute({ kind: "window" }, TEST_CONTEXT)
     expect(result.content).toContain("does not exist")
     expect(calls.some((argv) => argv[0] === "new-window")).toBe(false)
   })
 
-  test("tmux_new_window reports a missing target instead of running tmux", async () => {
-    const { ctx, tools } = fakeCtx()
+  test("tmux_kill kills a pane that is not the anchor", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
     const { runner, calls } = tmuxRunner(anchorExists())
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    const result = await tools.get("tmux_new_window")!.execute({}, TEST_CONTEXT)
-    expect(result.content).toContain("no tmux target")
-    expect(calls.length).toBe(0)
+    const result = await tools.get("tmux_kill")!.execute({ kind: "pane", target: "%4" }, TEST_CONTEXT)
+    expect(result.content).toContain("killed pane %4")
+    expect(calls.find((argv) => argv[0] === "kill-pane")).toEqual(["kill-pane", "-t", "%4"])
+  })
+
+  test("tmux_kill kills a window that does not contain the anchor", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner(anchorExists())
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_kill")!.execute({ kind: "window", target: "@4" }, TEST_CONTEXT)
+    expect(result.content).toContain("killed window @4")
+    expect(calls.find((argv) => argv[0] === "kill-window")).toEqual(["kill-window", "-t", "@4"])
+  })
+
+  test("tmux_kill refuses the anchor pane, with no target or an explicit one", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner(anchorExists())
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const implicit = await tools.get("tmux_kill")!.execute({ kind: "pane" }, TEST_CONTEXT)
+    expect(implicit.content).toMatch(/refus|anchor/i)
+    const explicit = await tools.get("tmux_kill")!.execute({ kind: "pane", target: "%6" }, TEST_CONTEXT)
+    expect(explicit.content).toMatch(/refus|anchor/i)
+    expect(calls.some((argv) => argv[0] === "kill-pane")).toBe(false)
+  })
+
+  test("tmux_kill refuses the window that contains the anchor pane", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner(anchorExists())
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_kill")!.execute({ kind: "window", target: "@3" }, TEST_CONTEXT)
+    expect(result.content).toMatch(/refus|anchor/i)
+    expect(calls.some((argv) => argv[0] === "kill-window")).toBe(false)
+  })
+
+  test("tmux_kill rejects an unknown kind", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
+    const result = await tools.get("tmux_kill")!.execute({ kind: "session" }, TEST_CONTEXT)
+    expect(result.content).toContain("kind")
   })
 
   test("tmux_send no longer requires a target in its schema", async () => {
@@ -329,41 +441,35 @@ describe("permission gate", () => {
     expect(call.source).toEqual({ type: "tool", messageID: "msg_x", id: "call_x" })
   })
 
-  test("tmux_new_pane skips the gate when no command is given", async () => {
-    const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
-    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
-
-    await tools.get("tmux_new_pane")!.execute({}, TEST_CONTEXT)
-    expect(assertCalls.length).toBe(0)
-  })
-
-  test("tmux_new_pane gates the raw command", async () => {
+  test("tmux_new skips the gate without a command and gates a raw command", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6", shell: "bash" })
     await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
 
-    await tools.get("tmux_new_pane")!.execute({ command: "ls | wc -l" }, TEST_CONTEXT)
+    await tools.get("tmux_new")!.execute({ kind: "pane" }, TEST_CONTEXT)
+    expect(assertCalls.length).toBe(0)
+
+    await tools.get("tmux_new")!.execute({ kind: "pane", command: "ls | wc -l" }, TEST_CONTEXT)
     expect(assertCalls.length).toBe(1)
     expect(assertCalls[0]!.action).toBe("shell")
-    // The resource is the raw command, not the shell-wrapped form, so user
-    // rules like `ls *` match.
+    // The resource is the raw command, not the shell-wrapped form.
     expect(assertCalls[0]!.resources).toEqual(["ls | wc -l"])
   })
 
-  test("tmux_new_window gates the raw command", async () => {
+  test("tmux_new gates a window command", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
     await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
 
-    await tools.get("tmux_new_window")!.execute({ command: "echo hi" }, TEST_CONTEXT)
+    await tools.get("tmux_new")!.execute({ kind: "window", command: "echo hi" }, TEST_CONTEXT)
     expect(assertCalls.length).toBe(1)
     expect(assertCalls[0]!.action).toBe("shell")
     expect(assertCalls[0]!.resources).toEqual(["echo hi"])
   })
 
-  test("tmux_new_window skips the gate when no command is given", async () => {
+  test("tmux_kill never asserts: it runs no shell command", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
     await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
 
-    await tools.get("tmux_new_window")!.execute({}, TEST_CONTEXT)
+    await tools.get("tmux_kill")!.execute({ kind: "pane", target: "%4" }, TEST_CONTEXT)
     expect(assertCalls.length).toBe(0)
   })
 
@@ -383,7 +489,7 @@ describe("permission gate", () => {
     const { runner, calls } = tmuxRunner(anchorExists())
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    await expect(tools.get("tmux_new_pane")!.execute({ command: "ls" }, TEST_CONTEXT)).rejects.toThrow("nope")
+    await expect(tools.get("tmux_new")!.execute({ kind: "pane", command: "ls" }, TEST_CONTEXT)).rejects.toThrow("nope")
     // The command never reaches tmux: no split-window call.
     expect(calls.some((argv) => argv[0] === "split-window")).toBe(false)
   })
@@ -395,8 +501,9 @@ describe("stale target detection", () => {
   for (const [name, args] of [
     ["tmux_send", { text: "hi" }],
     ["tmux_name", { kind: "pane", name: "n" }],
-    ["tmux_new_pane", {}],
-    ["tmux_new_window", {}],
+    ["tmux_new", { kind: "pane" }],
+    ["tmux_new", { kind: "window" }],
+    ["tmux_kill", { kind: "pane" }],
     ["tmux_capture", {}],
   ] as const) {
     test(`${name} reports a stale target instead of acting`, async () => {
