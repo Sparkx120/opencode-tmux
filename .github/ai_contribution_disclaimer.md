@@ -21,13 +21,13 @@ width of its number.
 
 Two things hold the columns in place when the table renders.
 
-- The padding is non-breaking space (`U+00A0`), not the ordinary space. A CommonMark code
-  span that begins and ends with a space loses one space from each end, so a cell padded
-  with an ordinary space loses its leading pad and misaligns; space collapsing in a
-  rendered table has the same effect. The non-breaking space is neither a CommonMark space
-  character nor a collapsible space, so it survives the edge trimming and any collapsing,
-  and holds every field at its fixed width. A code-span-only cell padded with ordinary
-  spaces still misaligns, because the padding is trimmed or collapsed away.
+- The padding is non-breaking space (`U+00A0`), not the ordinary space. On GitHub the
+  cause is CommonMark's code-span edge rule: a code span loses one leading and one trailing
+  space, so a cell padded with an ordinary space loses its leading pad and misaligns. A
+  renderer that collapses whitespace inside a code span loses it the same way. The
+  non-breaking space is neither a CommonMark space character nor a collapsible space, so it
+  survives the trimming and holds every field at its fixed width. A code-span-only cell
+  padded with ordinary spaces still misaligns, because the padding is trimmed away.
 - The whole bar cell is wrapped in a code span, so a monospace font keeps every glyph,
   including `█`, `░`, and `│`, one cell wide.
 

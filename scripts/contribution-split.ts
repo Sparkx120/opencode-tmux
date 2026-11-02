@@ -5,11 +5,11 @@
 // shade otherwise, one cell per ten points (floor(percent / 10)).
 //
 // The padding is non-breaking space (U+00A0) and each cell is wrapped in a code
-// span. The code span supplies the monospace face. The non-breaking space is
-// what survives the renderer: a CommonMark code span that begins and ends with a
-// space loses one space from each end, and space collapsing in a rendered table
-// has the same effect. U+00A0 is neither a CommonMark space character nor a
-// collapsible space. Neither percentage value is changed here; only layout.
+// span. The code span supplies the monospace face. U+00A0 is what survives the
+// renderer: CommonMark trims one leading and one trailing space from a code span,
+// so an ordinary-space pad is lost at the edges, while U+00A0 is neither a
+// CommonMark space character nor a collapsible space and is kept. Neither
+// percentage value is changed here; only layout.
 //
 // Usage: bun scripts/contribution-split.ts [README.md]  (rewrites the rows)
 //        bun scripts/contribution-split.ts --print       (rows to stdout)
