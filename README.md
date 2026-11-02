@@ -45,8 +45,6 @@ Every tool defaults its target to the agent pane unless it is given one. Every t
 
 ### Contribution split
 
-Rough split per phase: the left figure is human and the right is AI, and the solid blocks mark the larger share, with both sides solid at 50/50.
-
 | Work type | Human / AI |
 | --- | --- |
 | Architecture | 75%  ███████│░░░  25% |
