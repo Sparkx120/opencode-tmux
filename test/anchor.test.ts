@@ -22,8 +22,8 @@ describe("listPanesArgv", () => {
 
 describe("parsePaneRows", () => {
   test("parses tab-separated rows and ignores blank lines", () => {
-    const stdout = "%6\topencode\t/repo-a\n%10\tbash\t/repo-b\n\n"
-    expect(parsePaneRows(stdout)).toEqual([row("%6", "opencode", "/repo-a"), row("%10", "bash", "/repo-b")])
+    const stdout = "%1\topencode\t/repo-a\n%10\tbash\t/repo-b\n\n"
+    expect(parsePaneRows(stdout)).toEqual([row("%1", "opencode", "/repo-a"), row("%10", "bash", "/repo-b")])
   })
 
   test("keeps tabs inside the path (the last field)", () => {
@@ -32,7 +32,7 @@ describe("parsePaneRows", () => {
   })
 
   test("skips lines missing a second tab", () => {
-    expect(parsePaneRows("%6\topencode\n%7\tbash\t/repo\n")).toEqual([row("%7", "bash", "/repo")])
+    expect(parsePaneRows("%1\topencode\n%7\tbash\t/repo\n")).toEqual([row("%7", "bash", "/repo")])
   })
 
   test("an empty pane list parses to nothing", () => {
@@ -41,7 +41,7 @@ describe("parsePaneRows", () => {
 })
 
 describe("chooseAnchor", () => {
-  const match = [row("%10", "opencode", "/repo"), row("%6", "opencode", "/other")]
+  const match = [row("%10", "opencode", "/repo"), row("%1", "opencode", "/other")]
 
   test("explicit target beats everything", () => {
     const out = chooseAnchor({
@@ -68,7 +68,7 @@ describe("chooseAnchor", () => {
     const out = chooseAnchor({
       rows: match,
       directory: "/repo",
-      env: { TMUX_PANE: "%6" } as NodeJS.ProcessEnv,
+      env: { TMUX_PANE: "%1" } as NodeJS.ProcessEnv,
     })
     expect(out).toEqual({ target: "%10", source: "directory" })
   })
@@ -77,7 +77,7 @@ describe("chooseAnchor", () => {
     const out = chooseAnchor({
       rows: [row("%5", "bash", "/repo")],
       directory: "/repo",
-      env: { TMUX_PANE: "%6" } as NodeJS.ProcessEnv,
+      env: { TMUX_PANE: "%1" } as NodeJS.ProcessEnv,
     })
     expect(out).toEqual({ target: "%5", source: "directory" })
   })
@@ -86,7 +86,7 @@ describe("chooseAnchor", () => {
     const out = chooseAnchor({
       rows: [row("%5", "bash", "/repo"), row("%10", "opencode", "/repo")],
       directory: "/repo",
-      env: { TMUX_PANE: "%6" } as NodeJS.ProcessEnv,
+      env: { TMUX_PANE: "%1" } as NodeJS.ProcessEnv,
     })
     expect(out).toEqual({ target: "%10", source: "directory" })
   })
@@ -95,18 +95,18 @@ describe("chooseAnchor", () => {
     const out = chooseAnchor({
       rows: [row("%5", "opencode", "/repo"), row("%10", "opencode", "/repo")],
       directory: "/repo",
-      env: { TMUX_PANE: "%6" } as NodeJS.ProcessEnv,
+      env: { TMUX_PANE: "%1" } as NodeJS.ProcessEnv,
     })
-    expect(out).toEqual({ target: "%6", source: "env" })
+    expect(out).toEqual({ target: "%1", source: "env" })
   })
 
   test("no path match falls back to the environment", () => {
     const out = chooseAnchor({
       rows: [row("%5", "opencode", "/elsewhere")],
       directory: "/repo",
-      env: { TMUX_PANE: "%6" } as NodeJS.ProcessEnv,
+      env: { TMUX_PANE: "%1" } as NodeJS.ProcessEnv,
     })
-    expect(out).toEqual({ target: "%6", source: "env" })
+    expect(out).toEqual({ target: "%1", source: "env" })
   })
 
   test("no match and empty env yields no target", () => {

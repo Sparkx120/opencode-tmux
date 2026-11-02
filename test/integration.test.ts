@@ -5,12 +5,16 @@ import { describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { registerTools } from "../src/tools.js"
 import { killArgv, newArgv, run, sendKeysArgv, sessionForArgv } from "../src/tmux.js"
 
 const enabled = process.env.OPENCODE_TMUX_TEST === "1"
 const SESSION = "ocprobe-int"
 const WINDOW_SESSION = "ocprobe-fix"
+// The repository root, derived from this file's location so the live case does
+// not depend on where the checkout lives.
+const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url))
 
 const sendAll = async (argvs: string[][]) => {
   for (const argv of argvs) {
@@ -160,7 +164,9 @@ describe.skipIf(!enabled)("live tmux integration", () => {
       await run(["kill-session", "-t", EXEC_SESSION])
     }
     try {
-      const created = await run(["new-session", "-d", "-s", EXEC_SESSION, "-x", "80", "-y", "24"])
+      // Wide enough that the bracketed command does not wrap: a wrapped echo
+      // can put the end-marker text on its own line and be mistaken for output.
+      const created = await run(["new-session", "-d", "-s", EXEC_SESSION, "-x", "200", "-y", "24"])
       expect(created.code).toBe(0)
 
       await registerTools(ctx as never, run, {} as NodeJS.ProcessEnv, {
@@ -183,13 +189,14 @@ describe.skipIf(!enabled)("live tmux integration", () => {
       // A real listing: output present, exit 0, no fallback.
       const lsCase = await exec.execute(
         {
-          command: "ls /srv/work/app",
+          command: `ls '${REPO_ROOT}'`,
           new: "pane",
           target: EXEC_SESSION,
           timeoutMs: 3000,
         },
         context,
       )
+      expect(lsCase.content).toContain("package.json")
       expect(lsCase.content).toContain("index.ts")
       expect(lsCase.content).not.toContain("could not locate the output boundaries")
       expect(lsCase.content).toMatch(/\[tmux_exec: exit 0, pane %\d+\]/)

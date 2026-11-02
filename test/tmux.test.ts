@@ -19,8 +19,8 @@ import {
 
 describe("contextArgv", () => {
   test("builds agent-pane and pane-list commands when a target is present", () => {
-    expect(contextArgv("%6")).toEqual([
-      ["display-message", "-p", "-t", "%6", "-F", CONTEXT_FORMAT],
+    expect(contextArgv("%1")).toEqual([
+      ["display-message", "-p", "-t", "%1", "-F", CONTEXT_FORMAT],
       ["list-panes", "-a", "-F", CONTEXT_FORMAT],
     ])
   })
@@ -38,7 +38,7 @@ describe("contextArgv", () => {
 
 describe("nameArgv", () => {
   test("names a pane with select-pane -T", () => {
-    expect(nameArgv("pane", "%6", "worker")).toEqual(["select-pane", "-t", "%6", "-T", "worker"])
+    expect(nameArgv("pane", "%1", "worker")).toEqual(["select-pane", "-t", "%1", "-T", "worker"])
   })
 
   test("names a window with rename-window", () => {
@@ -48,84 +48,84 @@ describe("nameArgv", () => {
 
 describe("newArgv", () => {
   test("the default pane split matches the old detached vertical split", () => {
-    expect(newArgv("%6", { kind: "pane" })).toEqual([
+    expect(newArgv("%1", { kind: "pane" })).toEqual([
       "split-window",
       "-d",
       "-P",
       "-F",
       "#{pane_id}",
       "-t",
-      "%6",
+      "%1",
       "-v",
     ])
   })
 
   test("maps every pane place", () => {
-    expect(newArgv("%6", { kind: "pane", place: "bottom" })).toEqual([
+    expect(newArgv("%1", { kind: "pane", place: "bottom" })).toEqual([
       "split-window",
       "-d",
       "-P",
       "-F",
       "#{pane_id}",
       "-t",
-      "%6",
+      "%1",
       "-v",
     ])
-    expect(newArgv("%6", { kind: "pane", place: "top" })).toEqual([
+    expect(newArgv("%1", { kind: "pane", place: "top" })).toEqual([
       "split-window",
       "-d",
       "-P",
       "-F",
       "#{pane_id}",
       "-t",
-      "%6",
+      "%1",
       "-v",
       "-b",
     ])
-    expect(newArgv("%6", { kind: "pane", place: "right" })).toEqual([
+    expect(newArgv("%1", { kind: "pane", place: "right" })).toEqual([
       "split-window",
       "-d",
       "-P",
       "-F",
       "#{pane_id}",
       "-t",
-      "%6",
+      "%1",
       "-h",
     ])
-    expect(newArgv("%6", { kind: "pane", place: "left" })).toEqual([
+    expect(newArgv("%1", { kind: "pane", place: "left" })).toEqual([
       "split-window",
       "-d",
       "-P",
       "-F",
       "#{pane_id}",
       "-t",
-      "%6",
+      "%1",
       "-h",
       "-b",
     ])
   })
 
   test("passes a pane size to -l after the place", () => {
-    expect(newArgv("%6", { kind: "pane", size: "20" })).toEqual([
+    expect(newArgv("%1", { kind: "pane", size: "20" })).toEqual([
       "split-window",
       "-d",
       "-P",
       "-F",
       "#{pane_id}",
       "-t",
-      "%6",
+      "%1",
       "-v",
       "-l",
       "20",
     ])
-    expect(newArgv("%6", { kind: "pane", place: "right", size: "30%" })).toEqual([
+    expect(newArgv("%1", { kind: "pane", place: "right", size: "30%" })).toEqual([
       "split-window",
       "-d",
       "-P",
       "-F",
       "#{pane_id}",
       "-t",
-      "%6",
+      "%1",
       "-h",
       "-l",
       "30%",
@@ -133,39 +133,39 @@ describe("newArgv", () => {
   })
 
   test("focus omits -d so the new pane becomes active", () => {
-    expect(newArgv("%6", { kind: "pane", focus: true })).toEqual([
+    expect(newArgv("%1", { kind: "pane", focus: true })).toEqual([
       "split-window",
       "-P",
       "-F",
       "#{pane_id}",
       "-t",
-      "%6",
+      "%1",
       "-v",
     ])
   })
 
   test("wraps a pane command in the configured shell", () => {
-    expect(newArgv("%6", { kind: "pane", command: "htop" })).toEqual([
+    expect(newArgv("%1", { kind: "pane", command: "htop" })).toEqual([
       "split-window",
       "-d",
       "-P",
       "-F",
       "#{pane_id}",
       "-t",
-      "%6",
+      "%1",
       "-v",
       "sh",
       "-c",
       "htop",
     ])
-    expect(newArgv("%6", { kind: "pane", command: "echo hi", shell: "bash" })).toEqual([
+    expect(newArgv("%1", { kind: "pane", command: "echo hi", shell: "bash" })).toEqual([
       "split-window",
       "-d",
       "-P",
       "-F",
       "#{pane_id}",
       "-t",
-      "%6",
+      "%1",
       "-v",
       "bash",
       "-c",
@@ -236,66 +236,66 @@ describe("newArgv", () => {
 
 describe("killArgv", () => {
   test("kills a pane or a window by target", () => {
-    expect(killArgv("pane", "%6")).toEqual(["kill-pane", "-t", "%6"])
+    expect(killArgv("pane", "%1")).toEqual(["kill-pane", "-t", "%1"])
     expect(killArgv("window", "@1")).toEqual(["kill-window", "-t", "@1"])
   })
 })
 
 describe("windowForArgv", () => {
   test("asks tmux for the window id of a target", () => {
-    expect(windowForArgv("%6")).toEqual(["display-message", "-p", "-t", "%6", "-F", "#{window_id}"])
+    expect(windowForArgv("%1")).toEqual(["display-message", "-p", "-t", "%1", "-F", "#{window_id}"])
   })
 })
 
 describe("sendKeysArgv", () => {
   test("literal text plus a separate Enter by default", () => {
-    expect(sendKeysArgv("%6", "ls -la", {})).toEqual([
-      ["send-keys", "-t", "%6", "-l", "--", "ls -la"],
-      ["send-keys", "-t", "%6", "Enter"],
+    expect(sendKeysArgv("%1", "ls -la", {})).toEqual([
+      ["send-keys", "-t", "%1", "-l", "--", "ls -la"],
+      ["send-keys", "-t", "%1", "Enter"],
     ])
   })
 
   test("terms with -- so leading-dash text is not read as a flag", () => {
-    expect(sendKeysArgv("%6", "-n dash", {})).toEqual([
-      ["send-keys", "-t", "%6", "-l", "--", "-n dash"],
-      ["send-keys", "-t", "%6", "Enter"],
+    expect(sendKeysArgv("%1", "-n dash", {})).toEqual([
+      ["send-keys", "-t", "%1", "-l", "--", "-n dash"],
+      ["send-keys", "-t", "%1", "Enter"],
     ])
-    expect(sendKeysArgv("%6", "--help", {})).toEqual([
-      ["send-keys", "-t", "%6", "-l", "--", "--help"],
-      ["send-keys", "-t", "%6", "Enter"],
+    expect(sendKeysArgv("%1", "--help", {})).toEqual([
+      ["send-keys", "-t", "%1", "-l", "--", "--help"],
+      ["send-keys", "-t", "%1", "Enter"],
     ])
   })
 
   test("drops -l when literal is false", () => {
-    expect(sendKeysArgv("%6", "C-c", { literal: false, enter: false })).toEqual([
-      ["send-keys", "-t", "%6", "--", "C-c"],
+    expect(sendKeysArgv("%1", "C-c", { literal: false, enter: false })).toEqual([
+      ["send-keys", "-t", "%1", "--", "C-c"],
     ])
   })
 })
 
 describe("targetExistsArgv", () => {
   test("asks tmux for the pane id of a target", () => {
-    expect(targetExistsArgv("%6")).toEqual(["display-message", "-p", "-t", "%6", "-F", "#{pane_id}"])
+    expect(targetExistsArgv("%1")).toEqual(["display-message", "-p", "-t", "%1", "-F", "#{pane_id}"])
   })
 })
 
 describe("sessionForArgv", () => {
   test("asks tmux for the session of a target, colon-terminated", () => {
-    expect(sessionForArgv("%6")).toEqual(["display-message", "-p", "-t", "%6", "-F", "#{session_id}:"])
+    expect(sessionForArgv("%1")).toEqual(["display-message", "-p", "-t", "%1", "-F", "#{session_id}:"])
   })
 })
 
 describe("captureArgv", () => {
   test("plain capture", () => {
-    expect(captureArgv("%6", {})).toEqual(["capture-pane", "-p", "-t", "%6"])
+    expect(captureArgv("%1", {})).toEqual(["capture-pane", "-p", "-t", "%1"])
   })
 
   test("range and escapes", () => {
-    expect(captureArgv("%6", { start: "-20", end: "-1", escapes: true })).toEqual([
+    expect(captureArgv("%1", { start: "-20", end: "-1", escapes: true })).toEqual([
       "capture-pane",
       "-p",
       "-t",
-      "%6",
+      "%1",
       "-S",
       "-20",
       "-E",
