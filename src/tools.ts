@@ -26,12 +26,6 @@ const NO_TARGET =
 // sets `action: name` with `name = "shell"`), so the same permission rules apply.
 const SHELL_ACTION = "shell"
 
-// The shell-wrapped form of a command, as it will run in the pane. This is the
-// resource the permission gate evaluates.
-function shellCommand(shell: string, command: string): string {
-  return `${shell} -c ${command}`
-}
-
 function staleTarget(target: string): string {
   return `tmux target "${target}" does not exist (stale $TMUX_PANE?); pass a target or set the plugin \`pane\` option`
 }
@@ -152,8 +146,8 @@ export async function registerTools(
             agent: context.agent,
             source: { type: "tool", messageID: context.messageID, id: context.id },
             action: SHELL_ACTION,
-            resources: [shellCommand(shell, args.command)],
-            save: [shellCommand(shell, args.command)],
+            resources: [args.command],
+            save: [args.command],
           })
         }
         const argv = newPaneArgv(resolved, { vertical: args.vertical, command: args.command, shell })
@@ -193,8 +187,8 @@ export async function registerTools(
             agent: context.agent,
             source: { type: "tool", messageID: context.messageID, id: context.id },
             action: SHELL_ACTION,
-            resources: [shellCommand(shell, args.command)],
-            save: [shellCommand(shell, args.command)],
+            resources: [args.command],
+            save: [args.command],
           })
         }
         const argv = newWindowArgv(resolved, { name: args.name, command: args.command, shell })

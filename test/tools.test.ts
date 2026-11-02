@@ -245,24 +245,26 @@ describe("permission gate", () => {
     expect(assertCalls.length).toBe(0)
   })
 
-  test("tmux_new_pane gates the shell-wrapped command", async () => {
+  test("tmux_new_pane gates the raw command", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6", shell: "bash" })
     await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
 
     await tools.get("tmux_new_pane")!.execute({ command: "ls | wc -l" }, TEST_CONTEXT)
     expect(assertCalls.length).toBe(1)
     expect(assertCalls[0]!.action).toBe("shell")
-    expect(assertCalls[0]!.resources).toEqual(["bash -c ls | wc -l"])
+    // The resource is the raw command, not the shell-wrapped form, so user
+    // rules like `ls *` match.
+    expect(assertCalls[0]!.resources).toEqual(["ls | wc -l"])
   })
 
-  test("tmux_new_window gates the shell-wrapped command", async () => {
+  test("tmux_new_window gates the raw command", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
     await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
 
     await tools.get("tmux_new_window")!.execute({ command: "echo hi" }, TEST_CONTEXT)
     expect(assertCalls.length).toBe(1)
     expect(assertCalls[0]!.action).toBe("shell")
-    expect(assertCalls[0]!.resources).toEqual(["sh -c echo hi"])
+    expect(assertCalls[0]!.resources).toEqual(["echo hi"])
   })
 
   test("tmux_new_window skips the gate when no command is given", async () => {
