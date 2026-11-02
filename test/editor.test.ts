@@ -60,6 +60,13 @@ describe("editor family", () => {
     expect(isNano("/usr/bin/nano")).toBe(true)
     expect(isNano("vim")).toBe(false)
   })
+
+  test("family detection sees through the editor's own arguments", () => {
+    expect(isVimFamily("vim -f")).toBe(true)
+    expect(isVimFamily("/usr/bin/nvim --clean")).toBe(true)
+    expect(isNano("nano -w")).toBe(true)
+    expect(isVimFamily("code --wait")).toBe(false)
+  })
 })
 
 describe("shellQuote", () => {
@@ -113,6 +120,12 @@ describe("editorInvocation", () => {
     expect(
       editorInvocation({ editor: "/usr/bin/nvim", path: "/tmp/proj", isDirectory: true, nerdtree: true }).command,
     ).toBe("exec /usr/bin/nvim -c 'NERDTree /tmp/proj'")
+  })
+
+  test("an editor with arguments still reaches NERDTree", () => {
+    expect(
+      editorInvocation({ editor: "vim -f", path: "/tmp/proj", isDirectory: true, nerdtree: true }).command,
+    ).toBe("exec vim -f -c 'NERDTree /tmp/proj'")
   })
 
   test("nano on a directory reports that it cannot browse a folder", () => {

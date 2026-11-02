@@ -51,13 +51,19 @@ export function resolveEditor(input: ResolveEditorInput = {}): ResolvedEditor {
   return { source: "none" }
 }
 
+// The editor may carry its own arguments (`vim -f`, `code --wait`), so family
+// detection keys on the program name: the first whitespace-separated token.
+function programName(editor: string): string {
+  return basename(editor.trim().split(/\s+/)[0] ?? "")
+}
+
 export function isVimFamily(editor: string): boolean {
-  const name = basename(editor)
+  const name = programName(editor)
   return name === "vim" || name === "nvim"
 }
 
 export function isNano(editor: string): boolean {
-  return basename(editor) === "nano"
+  return programName(editor) === "nano"
 }
 
 // `-N` (nocompatible) is essential: plain `-es` starts vi-compatible and skips
