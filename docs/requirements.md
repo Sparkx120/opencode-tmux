@@ -21,7 +21,9 @@ tmux capabilities through tools, and teaches their use through skills.
 - Tools stay lean: precise functions with clear, simple descriptions.
 - Every tool description points at the `tmux` skill, so a request involving tmux loads the
   skill first for context.
-- Panes and windows should be named for their purpose by default.
+- Naming is opt-in: a pane or a window is named only when a `name` is given, to the create
+  tool or through the name tool. The skills encourage naming a pane or a window for its
+  purpose.
 - A name the plugin sets must outlast the program that owns the title: the plugin turns
   the program's own title or rename off for the pane or window it names, scoped to that
   one pane or window, and accepts the trade that the pane title then no longer reflects
