@@ -6,45 +6,11 @@ import {
   nameArgv,
   newPaneArgv,
   newWindowArgv,
-  resolveTarget,
   sendKeysArgv,
   settleCapture,
   sessionForArgv,
   targetExistsArgv,
 } from "../src/tmux.js"
-
-describe("resolveTarget precedence", () => {
-  test("explicit argument wins", () => {
-    expect(resolveTarget("%1", "%2", { TMUX_PANE: "%3" } as NodeJS.ProcessEnv)).toBe("%1")
-  })
-
-  test("plugin option beats the environment", () => {
-    expect(resolveTarget(undefined, "%2", { TMUX_PANE: "%3" } as NodeJS.ProcessEnv)).toBe("%2")
-  })
-
-  test("environment is the last fallback", () => {
-    expect(resolveTarget(undefined, undefined, { TMUX_PANE: "%3" } as NodeJS.ProcessEnv)).toBe("%3")
-  })
-
-  test("undefined when nothing is set", () => {
-    expect(resolveTarget(undefined, undefined, {} as NodeJS.ProcessEnv)).toBeUndefined()
-  })
-
-  test("empty strings fall through", () => {
-    expect(resolveTarget(undefined, "", { TMUX_PANE: "" } as NodeJS.ProcessEnv)).toBeUndefined()
-  })
-
-  test("defaults to process.env when the env argument is omitted", () => {
-    const saved = process.env.TMUX_PANE
-    process.env.TMUX_PANE = "%9"
-    try {
-      expect(resolveTarget(undefined, undefined)).toBe("%9")
-    } finally {
-      if (saved === undefined) delete process.env.TMUX_PANE
-      else process.env.TMUX_PANE = saved
-    }
-  })
-})
 
 describe("contextArgv", () => {
   test("builds agent-pane and pane-list commands when a target is present", () => {

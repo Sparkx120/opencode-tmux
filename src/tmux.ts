@@ -24,17 +24,6 @@ export interface RunOptions {
 
 export type Runner = (argv: string[], opts?: RunOptions) => Promise<RunResult>
 
-// Resolve which pane to act on: an explicit argument wins, then the plugin
-// `pane` option, then the agent's own $TMUX_PANE. Empty strings count as
-// unset so a blank config value cannot shadow the environment.
-export function resolveTarget(
-  explicit: string | undefined,
-  option: string | undefined,
-  env: NodeJS.ProcessEnv = process.env,
-): string | undefined {
-  return explicit || option || env.TMUX_PANE || undefined
-}
-
 export function run(argv: string[], opts: RunOptions = {}): Promise<RunResult> {
   return new Promise((resolve) => {
     execFile("tmux", argv, { env: opts.env ?? process.env }, (error, stdout, stderr) => {

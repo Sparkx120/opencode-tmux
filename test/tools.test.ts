@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Plugin } from "@opencode/plugin"
 import { registerTools } from "../src/tools.js"
+import { PANE_LIST_FORMAT } from "../src/anchor.js"
 import { CONTEXT_FORMAT } from "../src/tmux.js"
 import type { RunResult, Runner } from "../src/tmux.js"
 const EMPTY_ENV = {} as NodeJS.ProcessEnv
@@ -24,11 +25,13 @@ interface AssertCall {
 function fakeCtx(
   options: Record<string, unknown> = {},
   assertImpl: (input: AssertCall) => Promise<void> = async () => {},
+  directory?: string,
 ): { ctx: Plugin.Context; tools: Map<string, Captured>; assertCalls: AssertCall[] } {
   const tools = new Map<string, Captured>()
   const assertCalls: AssertCall[] = []
   const ctx = {
     options,
+    location: directory ? { directory } : undefined,
     permission: {
       assert: async (input: AssertCall) => {
         assertCalls.push(input)
@@ -56,9 +59,10 @@ const ok = (stdout: string): RunResult => ({ stdout, stderr: "", code: 0, messag
 const bad = (message: string): RunResult => ({ stdout: "", stderr: message, code: 1, message })
 
 // The stale-anchor probe is the display-message that asks for #{pane_id}; the
-// session probe asks for #{session_id}.
+// session probe asks for #{session_id}; the anchor heuristic lists panes.
 const isProbe = (argv: string[]) => argv[0] === "display-message" && argv[argv.length - 1] === "#{pane_id}"
 const isSessionProbe = (argv: string[]) => argv[0] === "display-message" && argv[argv.length - 1] === "#{session_id}:"
+const isPaneList = (argv: string[]) => argv[0] === "list-panes"
 
 function tmuxRunner(respond: (argv: string[]) => RunResult): { runner: Runner; calls: string[][] } {
   const calls: string[][] = []
@@ -73,6 +77,24 @@ function tmuxRunner(respond: (argv: string[]) => RunResult): { runner: Runner; c
 // command succeeds.
 const anchorExists = (stdout = "%9\n") => (argv: string[]) =>
   isProbe(argv) ? ok("%6\n") : isSessionProbe(argv) ? ok("$3:\n") : ok(stdout)
+
+const TMUX_DIR = "/srv/work/app"
+const PANE_LIST = ["%6\topencode\t/srv/other/tool", `%10\topencode\t${TMUX_DIR}`].join(
+  "\n",
+)
+
+// Responder for the directory heuristic: answers the pane list plus the
+// existence/session probes, with a configurable probe target.
+const withPaneList = (probeTarget = "%10\n") => (argv: string[]) =>
+  isPaneList(argv)
+    ? ok(`${PANE_LIST}\n`)
+    : isProbe(argv)
+      ? ok(probeTarget)
+      : isSessionProbe(argv)
+        ? ok("$3:\n")
+        : argv[0] === "display-message"
+          ? ok("sess:0.1 pane_id=%10 title=x cmd=opencode\n")
+          : ok("%9\n")
 
 const NAMES = ["tmux_context", "tmux_name", "tmux_new_pane", "tmux_new_window", "tmux_send", "tmux_capture"]
 
@@ -244,6 +266,49 @@ describe("registerTools", () => {
 
     const result = await tools.get("tmux_capture")!.execute({}, TEST_CONTEXT)
     expect(result.content).toContain("can't find pane")
+  })
+})
+
+describe("anchor heuristic", () => {
+  test("resolves the target from the session directory when no pane option is set", async () => {
+    const { ctx, tools } = fakeCtx({}, async () => {}, TMUX_DIR)
+    const { runner, calls } = tmuxRunner(withPaneList())
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_send")!.execute({ text: "ls" }, TEST_CONTEXT)
+    expect(result.content).toContain("sent")
+    const sends = calls.filter((argv) => argv[0] === "send-keys")
+    expect(sends[0]).toEqual(["send-keys", "-t", "%10", "-l", "--", "ls"])
+  })
+
+  test("tmux_context notes a directory-resolved anchor", async () => {
+    const { ctx, tools } = fakeCtx({}, async () => {}, TMUX_DIR)
+    await registerTools(ctx, tmuxRunner(withPaneList()).runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_context")!.execute({}, TEST_CONTEXT)
+    expect(result.content).toContain("pane_id=%10")
+    expect(result.content).toContain("from session directory")
+  })
+
+  test("the pane option beats the directory heuristic", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" }, async () => {}, TMUX_DIR)
+    const { runner, calls } = tmuxRunner(withPaneList())
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_context")!.execute({}, TEST_CONTEXT)
+    expect(result.content).toContain("plugin `pane` option")
+    // The heuristic's pane list (with the anchor format) is skipped when the option pins a pane.
+    expect(
+      calls.some((argv) => argv[0] === "list-panes" && argv[argv.length - 1] === PANE_LIST_FORMAT),
+    ).toBe(false)
+  })
+
+  test("falls back to $TMUX_PANE with a note when the directory does not match", async () => {
+    const { ctx, tools } = fakeCtx({}, async () => {}, "/nowhere")
+    await registerTools(ctx, tmuxRunner(withPaneList("%6\n")).runner, { TMUX_PANE: "%6" } as NodeJS.ProcessEnv)
+
+    const result = await tools.get("tmux_context")!.execute({}, TEST_CONTEXT)
+    expect(result.content).toContain("from $TMUX_PANE")
   })
 })
 

@@ -4,6 +4,7 @@
 // injectable so tests exercise the glue without touching a real tmux server.
 
 import type { Plugin } from "@opencode/plugin"
+import { chooseAnchor, listPanesArgv, parsePaneRows, type AnchorSource, type PaneRow } from "./anchor.js"
 import {
   captureArgv,
   contextArgv,
@@ -11,7 +12,6 @@ import {
   nameArgv,
   newPaneArgv,
   newWindowArgv,
-  resolveTarget,
   run as defaultRun,
   sendKeysArgv,
   sessionForArgv,
@@ -29,6 +29,31 @@ const SHELL_ACTION = "shell"
 
 function staleTarget(target: string): string {
   return `tmux target "${target}" does not exist (stale $TMUX_PANE?); pass a target or set the plugin \`pane\` option`
+}
+
+// How the anchor line reads in tmux_context, so a wrong anchor is obvious.
+function sourceNote(source: AnchorSource): string {
+  switch (source) {
+    case "option":
+      return "(from plugin `pane` option)"
+    case "directory":
+      return "(from session directory)"
+    case "env":
+      return "(from $TMUX_PANE)"
+    case "explicit":
+      return "(from explicit target)"
+    default:
+      return ""
+  }
+}
+
+// The pane list feeds the directory heuristic; an absent location means the
+// heuristic is skipped, so no tmux call is made for it.
+async function loadPaneRows(runner: Runner, directory: string | undefined): Promise<PaneRow[]> {
+  if (!directory) return []
+  const res = await runner(listPanesArgv())
+  if (res.code !== 0) return []
+  return parsePaneRows(res.stdout)
 }
 
 function paneOption(ctx: Plugin.Context): string | undefined {
@@ -52,7 +77,14 @@ export async function registerTools(
 ) {
   const pane = paneOption(ctx)
   const shell = shellOption(ctx)
-  const target = (explicit?: string) => resolveTarget(explicit, pane, env)
+  const directory = ctx.location?.directory as string | undefined
+
+  // Resolve the anchor once: the session's location directory identifies its
+  // pane, so a shared daemon's stale $TMUX_PANE does not win. A pinned pane
+  // option short-circuits the heuristic, so its pane list is never fetched.
+  const rows = pane ? [] : await loadPaneRows(runner, directory)
+  const anchor = chooseAnchor({ option: pane, rows, directory, env })
+  const target = (explicit?: string) => (explicit ? explicit : anchor.target)
 
   // The resolved target can be a stale $TMUX_PANE the daemon inherited. Probe
   // it before acting so a dead anchor fails clearly instead of with a raw tmux
@@ -78,24 +110,26 @@ export async function registerTools(
         "Show the tmux session, window, and pane the agent runs in, and every pane. Load the `tmux` skill before using tmux tools: it explains ids and targets. No arguments.",
       input: { type: "object", properties: {}, additionalProperties: false },
       execute: async () => {
-        const anchor = target(undefined)
+        const anchorTarget = target(undefined)
         const chunks: string[] = []
         let anchorOk = false
-        if (anchor && (await confirmed(anchor))) {
+        if (anchorTarget && (await confirmed(anchorTarget))) {
           anchorOk = true
         }
-        for (const argv of contextArgv(anchorOk ? anchor : undefined)) {
+        for (const argv of contextArgv(anchorOk ? anchorTarget : undefined)) {
           const res = await runner(argv)
           if (res.code !== 0) return failure(argv, res.message)
-          chunks.push(res.stdout.trimEnd())
+          // Note how the agent pane was resolved, so a wrong anchor is obvious.
+          const note = argv[0] === "display-message" ? ` ${sourceNote(anchor.source)}` : ""
+          chunks.push((res.stdout.trimEnd() + note).trimEnd())
         }
-        if (!anchor) {
+        if (!anchorTarget) {
           chunks.unshift(
             "No agent pane available (set $TMUX_PANE or the plugin `pane` option); listing all panes.",
           )
         } else if (!anchorOk) {
           chunks.unshift(
-            `Anchor pane ${anchor} is unavailable (stale $TMUX_PANE?); listing all panes instead.`,
+            `Anchor pane ${anchorTarget} is unavailable (stale $TMUX_PANE?); listing all panes instead.`,
           )
         }
         return { content: chunks.filter((c) => c.length > 0).join("\n") }
