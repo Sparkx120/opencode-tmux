@@ -106,12 +106,8 @@ existence probe, the anchor, the context, and a capture all read panes through
 `tmux_send`, where typing is the entire point. A pane is the user's workspace, and every key
 sent to it leaves residue in something the user is looking at.
 
-What is deferred is making that rule sufficient for an investigation rather than merely
-followed. `tmux_context` reports each pane's address, id, title, and current command, but
-not its size, whether it is the active pane, or whether it is dead, so an investigator who
-needs those has no direct way to ask.
+The rule is stated in the `tmux` skill, both in its pitfalls and in the `tmux_send` section, so a session that reads the skill before touching tmux has it. What is deferred is making the rule sufficient for an investigation rather than merely stated. `tmux_context` reports each pane's address, id, title, and current command, but not its size, whether it is the active pane, or whether it is dead, so an inspector who needs those has no direct way to ask.
 
 Not done because none of those fields has been needed yet and the context output is kept
 compact. A change would add them, so anything an inspection reaches for is available from
-pane information alone, and would state the rule in `AGENTS.md` and the `tmux` skill instead
-of leaving it to habit.
+pane information alone.

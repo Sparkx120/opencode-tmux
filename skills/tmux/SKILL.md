@@ -72,6 +72,8 @@ Input: `text`, `target` (required in practice), optional `literal` (default true
 
 Sends `text` to a pane, then a separate Enter when `enter` is true. The target must be a pane other than the agent's own: an omitted target resolves to the agent pane and is refused, so pass an explicit target. With `literal` true the text is sent verbatim, so `|`, `"`, and `;` stay literal instead of being read as key names. Set `literal` false only to send a key name such as `C-c`. To run a shell command, send the command as normal text: tmux sends it to the pane's shell, plus Enter. The text is written into the pane's existing shell, so `tmux_send` does not wrap it in a shell; this call still goes through the shell permission gate.
 
+This is the only path that writes keys into a pane, and typing is its whole purpose. Never use it to find out what a pane is doing: whatever you send stays on screen in front of whoever is using that pane.
+
 ### `tmux_exec`
 
 Input: `command`, optional `new` (`pane` or `window`, default `pane`), `place`, `focus`, `timeoutMs`.
@@ -92,6 +94,7 @@ Reads a pane's visible contents. It polls until two consecutive reads match, bec
 
 ## Pitfalls
 
+- Never learn about a pane by typing into it. Read panes directly: `tmux_context` for the pane list and the anchor, `display-message` for a pane's fields, `tmux_capture` for its contents. A pane is someone's workspace, and a key sent to it leaves residue, since a stray Enter prints a fresh prompt line and stays on screen. `tmux_send` is the only tool that types into a pane, and typing is its entire purpose.
 - Send literal text with a separate Enter. Without `-l`, tmux parses `|`, `"`, and `;` as key names; the tool does this for you, but the same rule applies to raw `send-keys`. Terminate flags with `--` before the text, so leading-dash text is not read as an option: `send-keys -t <pane> -l -- <text>`.
 - Capture output lags the redraw. The tool waits for the pane to settle; if a program is still writing, expect the newest lines only on a later read.
 - Geometry comes from `display-message`, not from the process. The agent is not a tty, so terminal queries fail; ask tmux for rows, columns, and layout instead.
