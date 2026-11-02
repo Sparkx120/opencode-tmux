@@ -72,6 +72,7 @@ is not attached to the service.
   integration file drives a real tmux and is opt-in.
 - `scripts/contribution-split.ts` — regenerates the `Contribution split` table rows in
   `README.md` from the percentage pairs.
+- `.github/ai_contribution_disclaimer.md` — how the README AI disclosure is maintained.
 
 The plan for the current feature set lives outside the repo, in the plan document for the
 editor-and-tool-merge feature.
@@ -160,37 +161,8 @@ naming the person who made it.
 
 ## AI disclosure
 
-The README carries the AI disclosure, under `AI Disclosure`, with two subsections,
-`Contribution split` and `Models`. Keep both current as the work moves.
-
-The split is an estimate of how the work was divided, not a measurement, so settle the
-percentages with the user rather than setting them alone. There is a row per phase:
-architecture, requirements, implementation, testing, review, and documentation.
-
-Each row is one cell holding the human percentage, the bar, and the AI percentage. In the
-bar the divider is the axis and sits at a fixed column, so the two sides are separate
-gauges on the same hundred-point scale rather than one bar split at a point. Each side is
-ten cells wide, one cell per ten points, filled outward from the divider with `█` and
-leaving the rest in `░`, so a side draws `floor(percent / 10)` cells. The percentage is
-right-aligned in a fixed-width field before the bar and left-aligned in a fixed-width field
-after it, so each value hugs the divider and neither field moves with the width of its
-number.
-
-Regenerate the rows with `scripts/contribution-split.ts`
-(`bun scripts/contribution-split.ts README.md`) rather than adjusting the spacing by hand,
-since hand-padding drifts and the divider stops lining up.
-
-Pad the fields with non-breaking space (`U+00A0`), not the ordinary space. A markdown table
-renders as HTML, which collapses runs of ordinary spaces to one and strips leading spaces,
-so hand padding in ordinary spaces disappears and the fields stop lining up; non-breaking
-space is exempt from that collapsing and holds the columns in place. The whole bar cell is
-also wrapped in a code span so a monospace font keeps every glyph one cell wide. The code
-span is not sufficient by itself: the `code` element keeps the default `white-space:
-normal`, so ordinary spaces inside it still collapse, which is why the padding is
-non-breaking space rather than a code span alone.
-
-The `Models` list names each model used and the phases it covered, and stays limited to
-models that actually ran the work. Ask before recording a model that has not.
+The README carries the AI disclosure. Its maintenance, the contribution-split layout and
+padding, and the `Models` rule live in `.github/ai_contribution_disclaimer.md`.
 
 ## Versioning
 
