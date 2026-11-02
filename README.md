@@ -43,6 +43,8 @@ Every tool defaults its target to the agent pane unless it is given one. Every t
 
 ## AI Disclosure
 
+### Contribution split
+
 Rough split per phase: the left figure is human and the right is AI, and the solid blocks mark the larger share, with both sides solid at 50/50.
 
 | Work type | Human / AI |
@@ -53,3 +55,7 @@ Rough split per phase: the left figure is human and the right is AI, and the sol
 | Testing | 0%  │██████████  100% |
 | Review | 50%  █████│█████  50% |
 | Documentation | 10%  ░│█████████  90% |
+
+### Models
+
+- DeepSeek V4.1 Flash (Hugging Face) — every phase above: architecture, requirements, implementation, testing, review, and documentation.
