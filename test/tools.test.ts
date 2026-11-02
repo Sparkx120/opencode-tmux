@@ -1,10 +1,20 @@
 import { describe, expect, test } from "bun:test"
 import type { Plugin } from "@opencode/plugin"
-import { registerTools } from "../src/tools.js"
+import { registerTools as registerToolsImpl } from "../src/tools.js"
 import { PANE_LIST_FORMAT } from "../src/anchor.js"
 import { CONTEXT_FORMAT } from "../src/tmux.js"
 import type { RunResult, Runner } from "../src/tmux.js"
 const EMPTY_ENV = {} as NodeJS.ProcessEnv
+
+// The NERDTree probe and the directory check are injected so no editor runs in
+// these tests. Tests that need different behaviour pass their own deps.
+const DEPS = { exec: async () => 0, isDirectory: () => false }
+const registerTools = (
+  ctx: Plugin.Context,
+  runner: Runner,
+  env: NodeJS.ProcessEnv = EMPTY_ENV,
+  deps = DEPS,
+) => registerToolsImpl(ctx, runner, env, deps)
 
 interface Captured {
   name: string
@@ -109,10 +119,10 @@ const withPaneList = (probeTarget = "%10\n") => (argv: string[]) =>
             ? ok("sess:0.1 pane_id=%10 title=x cmd=opencode\n")
             : ok("%9\n")
 
-const NAMES = ["tmux_context", "tmux_new", "tmux_kill", "tmux_name", "tmux_send", "tmux_capture"]
+const NAMES = ["tmux_context", "tmux_new", "tmux_kill", "tmux_name", "tmux_send", "tmux_capture", "tmux_edit"]
 
 describe("registerTools", () => {
-  test("registers exactly the six tmux tools", async () => {
+  test("registers exactly the seven tmux tools", async () => {
     const { ctx, tools } = fakeCtx()
     await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
     expect([...tools.keys()].sort()).toEqual([...NAMES].sort())
@@ -424,6 +434,129 @@ describe("anchor heuristic", () => {
   })
 })
 
+describe("tmux_edit", () => {
+  const probeOk = { exec: async () => 0, isDirectory: () => false }
+  const probeMissing = { exec: async () => 1, isDirectory: () => true }
+
+  test("opens a file in a right-hand focused pane with the resolved editor", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6", editor: "vim" })
+    const { runner, calls } = tmuxRunner(anchorExists("%42\n"))
+    await registerTools(ctx, runner, EMPTY_ENV, probeOk)
+
+    const result = await tools.get("tmux_edit")!.execute({ path: "/tmp/f.txt" }, TEST_CONTEXT)
+    expect(result.content).toContain("opened /tmp/f.txt with vim")
+    expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
+      "split-window",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-h",
+      "sh",
+      "-c",
+      "exec 'vim' '/tmp/f.txt'",
+    ])
+  })
+
+  test("placement left uses -h -b and focus false adds -d", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6", editor: "vim" })
+    const { runner, calls } = tmuxRunner(anchorExists("%42\n"))
+    await registerTools(ctx, runner, EMPTY_ENV, probeOk)
+
+    await tools.get("tmux_edit")!.execute({ path: "/tmp/f.txt", placement: "left", focus: false }, TEST_CONTEXT)
+    expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
+      "split-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-h",
+      "-b",
+      "sh",
+      "-c",
+      "exec 'vim' '/tmp/f.txt'",
+    ])
+  })
+
+  test("placement window opens a named window in the agent's session", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6", editor: "vim" })
+    const { runner, calls } = tmuxRunner(anchorExists("@7\n"))
+    await registerTools(ctx, runner, EMPTY_ENV, probeOk)
+
+    await tools.get("tmux_edit")!.execute({ path: "/tmp/proj", placement: "window" }, TEST_CONTEXT)
+    expect(calls.find(isSessionProbe)).toEqual(["display-message", "-p", "-t", "%6", "-F", "#{session_id}:"])
+    expect(calls.find((argv) => argv[0] === "new-window")).toEqual([
+      "new-window",
+      "-P",
+      "-F",
+      "#{window_id}",
+      "-t",
+      "$3:",
+      "-a",
+      "-n",
+      "proj",
+      "sh",
+      "-c",
+      "exec 'vim' '/tmp/proj'",
+    ])
+  })
+
+  test("a directory uses NERDTree when the probe found it", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6", editor: "vim" })
+    const { runner, calls } = tmuxRunner(anchorExists("%42\n"))
+    await registerTools(ctx, runner, EMPTY_ENV, { exec: async () => 0, isDirectory: () => true })
+
+    const result = await tools.get("tmux_edit")!.execute({ path: "/tmp/proj" }, TEST_CONTEXT)
+    expect(result.content).toContain("NERDTree")
+    expect(calls.find((argv) => argv[0] === "split-window")).toContain("exec 'vim' -c 'NERDTree /tmp/proj'")
+  })
+
+  test("a directory opens plainly when NERDTree is absent", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6", editor: "vim" })
+    const { runner, calls } = tmuxRunner(anchorExists("%42\n"))
+    await registerTools(ctx, runner, EMPTY_ENV, probeMissing)
+
+    const result = await tools.get("tmux_edit")!.execute({ path: "/tmp/proj" }, TEST_CONTEXT)
+    expect(result.content).not.toContain("NERDTree")
+    expect(calls.find((argv) => argv[0] === "split-window")).toContain("exec 'vim' '/tmp/proj'")
+  })
+
+  test("nano on a directory is reported and nothing opens", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6", editor: "nano" })
+    const { runner, calls } = tmuxRunner(anchorExists())
+    await registerTools(ctx, runner, EMPTY_ENV, { exec: async () => 0, isDirectory: () => true })
+
+    const result = await tools.get("tmux_edit")!.execute({ path: "/tmp/proj" }, TEST_CONTEXT)
+    expect(result.content).toContain("folder")
+    // Only the existence probe ran.
+    expect(calls.length).toBe(1)
+  })
+
+  test("no editor reports the three ways to fix it", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner(anchorExists())
+    await registerTools(ctx, runner, EMPTY_ENV, probeOk)
+
+    const result = await tools.get("tmux_edit")!.execute({ path: "/tmp/f.txt" }, TEST_CONTEXT)
+    expect(result.content).toContain("editor")
+    expect(result.content).toContain("$EDITOR")
+    expect(calls.some((argv) => argv[0] === "split-window")).toBe(false)
+  })
+
+  test("the editor command is gated by the shell permission", async () => {
+    const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6", editor: "vim" })
+    await registerTools(ctx, tmuxRunner(anchorExists("%42\n")).runner, EMPTY_ENV, probeOk)
+
+    await tools.get("tmux_edit")!.execute({ path: "/tmp/f.txt" }, TEST_CONTEXT)
+    expect(assertCalls.length).toBe(1)
+    expect(assertCalls[0]!.action).toBe("shell")
+    expect(assertCalls[0]!.resources).toEqual(["exec 'vim' '/tmp/f.txt'"])
+  })
+})
+
 describe("permission gate", () => {
   test("tmux_send asserts the shell action with the text as the resource", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
@@ -505,6 +638,7 @@ describe("stale target detection", () => {
     ["tmux_new", { kind: "window" }],
     ["tmux_kill", { kind: "pane" }],
     ["tmux_capture", {}],
+    ["tmux_edit", { path: "/tmp/f" }],
   ] as const) {
     test(`${name} reports a stale target instead of acting`, async () => {
       const { ctx, tools } = fakeCtx({ pane: "%6" })

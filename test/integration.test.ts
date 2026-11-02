@@ -2,6 +2,9 @@
 // needs a running tmux server and creates throwaway sessions.
 
 import { describe, expect, test } from "bun:test"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { killArgv, newArgv, run, sendKeysArgv, sessionForArgv } from "../src/tmux.js"
 
 const enabled = process.env.OPENCODE_TMUX_TEST === "1"
@@ -98,6 +101,40 @@ describe.skipIf(!enabled)("live tmux integration", () => {
 
       const killed = await run(killArgv("pane", paneId))
       expect(killed.code).toBe(0)
+    } finally {
+      await cleanup()
+    }
+  })
+
+  // tmux_edit, through the builder: the pane must end up running the editor.
+  test("tmux_edit opens vim in a pane", async () => {
+    const EDIT_SESSION = "ocprobe-edit"
+    const dir = mkdtempSync(join(tmpdir(), "ocprobe-edit-"))
+    const file = join(dir, "note.txt")
+    const cleanup = async () => {
+      await run(["kill-session", "-t", EDIT_SESSION])
+      rmSync(dir, { recursive: true, force: true })
+    }
+    try {
+      writeFileSync(file, "hello\n")
+      const created = await run(["new-session", "-d", "-s", EDIT_SESSION, "-x", "80", "-y", "24"])
+      expect(created.code).toBe(0)
+
+      const command = `exec 'vim' '${file}'`
+      const pane = await run(newArgv(EDIT_SESSION, { kind: "pane", place: "right", command, focus: true }))
+      expect(pane.code).toBe(0)
+      const paneId = pane.stdout.trim()
+
+      let cmd = ""
+      for (let i = 0; i < 40; i++) {
+        const res = await run(["display-message", "-p", "-t", paneId, "-F", "#{pane_current_command}"])
+        cmd = res.stdout.trim()
+        if (cmd === "vim") break
+        await new Promise((r) => setTimeout(r, 50))
+      }
+      expect(cmd).toBe("vim")
+
+      await run(killArgv("pane", paneId))
     } finally {
       await cleanup()
     }

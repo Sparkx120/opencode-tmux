@@ -4,7 +4,18 @@
 // injectable so tests exercise the glue without touching a real tmux server.
 
 import type { Plugin } from "@opencode/plugin"
+import { basename } from "node:path"
+import { statSync } from "node:fs"
 import { chooseAnchor, listPanesArgv, parsePaneRows, type AnchorSource, type PaneRow } from "./anchor.js"
+import {
+  editorInvocation,
+  isVimFamily,
+  NERD_TREE_PROBE_ARGS,
+  probeNerdTree,
+  resolveEditor,
+  type EditorExec,
+  type ResolvedEditor,
+} from "./editor.js"
 import {
   captureArgv,
   contextArgv,
@@ -79,6 +90,33 @@ function shellOption(ctx: Plugin.Context): string {
   return typeof value === "string" && value.length > 0 ? value : DEFAULT_SHELL
 }
 
+function editorOption(ctx: Plugin.Context): string | undefined {
+  const value = ctx.options.editor
+  return typeof value === "string" && value.length > 0 ? value : undefined
+}
+
+// Injectable edges for `tmux_edit`: the NERDTree probe and the directory check.
+export interface ToolDeps {
+  /** Runs a binary; defaults to a real exec. Used for the NERDTree probe. */
+  exec?: EditorExec
+  /** Whether a path is a directory; defaults to fs.statSync. */
+  isDirectory?: (path: string) => boolean
+}
+
+function statIsDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+function editSummary(editor: string, path: string, placement: string, nerdtree: boolean, id: string): string {
+  const where = placement === "window" ? "window" : `${placement} pane`
+  const via = nerdtree ? " with NERDTree" : ""
+  return `opened ${path} with ${editor} in a new ${where}${via}: ${id}`
+}
+
 function failure(argv: string[], message: string): { content: string } {
   return { content: `tmux ${argv[0]} failed: ${message}` }
 }
@@ -87,10 +125,21 @@ export async function registerTools(
   ctx: Plugin.Context,
   runner: Runner = defaultRun,
   env: NodeJS.ProcessEnv = process.env,
+  deps: ToolDeps = {},
 ) {
   const pane = paneOption(ctx)
   const shell = shellOption(ctx)
   const directory = ctx.location?.directory as string | undefined
+
+  // Resolve the editor and probe NERDTree once: neither changes during a run.
+  // The probe only runs for a vim-family editor, since NERDTree is vim-only.
+  const resolvedEditor: ResolvedEditor = resolveEditor({ option: editorOption(ctx), env })
+  const exec = deps.exec ?? probeNerdTree
+  const nerdtree =
+    resolvedEditor.command !== undefined && isVimFamily(resolvedEditor.command)
+      ? (await exec(resolvedEditor.command, NERD_TREE_PROBE_ARGS)) === 0
+      : false
+  const isDirectory = deps.isDirectory ?? statIsDirectory
 
   // Resolve the anchor once: the session's location directory identifies its
   // pane, so a shared daemon's stale $TMUX_PANE does not win. A pinned pane
@@ -397,6 +446,80 @@ export async function registerTools(
         })
         const text = captured.replace(/\s+$/, "")
         return { content: text.length > 0 ? text : "(pane is empty)" }
+      },
+    })
+
+    editor.add({
+      name: "tmux_edit",
+      description:
+        "Open the user's editor on a file or folder in a new tmux pane or window. Use it only when the user explicitly asks to edit a file. Load the `tmux` skill first; the `tmux-editor` skill covers it. Input: path, optional placement (right|left|window), focus (default true), target.",
+      input: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "File or directory to open" },
+          placement: {
+            type: "string",
+            enum: ["right", "left", "window"],
+            description: "right (default), left, or window",
+          },
+          focus: { type: "boolean", description: "Focus the new pane or window (default true)" },
+          target: {
+            type: "string",
+            description: "Pane to split, or session anchor for a window; defaults to the agent pane",
+          },
+        },
+        required: ["path"],
+        additionalProperties: false,
+      },
+      execute: async (raw, context) => {
+        const args = raw as { path?: string; placement?: string; focus?: boolean; target?: string }
+        if (!args.path) return { content: "tmux_edit: path is required" }
+        const placement = args.placement ?? "right"
+        if (placement !== "right" && placement !== "left" && placement !== "window") {
+          return { content: 'tmux_edit: placement must be "right", "left", or "window"' }
+        }
+        const resolved = target(args.target)
+        if (!resolved) return { content: NO_TARGET }
+        if (!(await confirmed(resolved))) return { content: staleTarget(resolved) }
+        if (!resolvedEditor.command) {
+          return {
+            content:
+              "tmux_edit: no editor found; set the plugin `editor` option, set $EDITOR, or install vim or nano",
+          }
+        }
+        const invocation = editorInvocation({
+          editor: resolvedEditor.command,
+          path: args.path,
+          isDirectory: isDirectory(args.path),
+          nerdtree,
+        })
+        if (!invocation.command) {
+          return { content: `tmux_edit: ${invocation.error ?? "cannot open this path"}` }
+        }
+        const command = invocation.command
+        const focus = args.focus !== false
+        await ctx.permission.assert({
+          sessionID: context.sessionID,
+          agent: context.agent,
+          source: { type: "tool", messageID: context.messageID, id: context.id },
+          action: SHELL_ACTION,
+          resources: [command],
+          save: [command],
+        })
+
+        if (placement === "window") {
+          const session = await sessionOf(resolved)
+          if (!session) return { content: staleTarget(resolved) }
+          const argv = newArgv(session, { kind: "window", name: basename(args.path), command, shell, focus })
+          const res = await runner(argv)
+          if (res.code !== 0) return failure(argv, res.message)
+          return { content: editSummary(resolvedEditor.command, args.path, "window", invocation.nerdtree, res.stdout.trim()) }
+        }
+
+        const argv = newArgv(resolved, { kind: "pane", place: placement as PanePlace, command, shell, focus })
+        const res = await runner(argv)
+        if (res.code !== 0) return failure(argv, res.message)
+        return { content: editSummary(resolvedEditor.command, args.path, placement, invocation.nerdtree, res.stdout.trim()) }
       },
     })
   })

@@ -5,7 +5,8 @@ function fakeCtx() {
   const toolNames = new Set<string>()
   const skillIds = new Set<string>()
   const ctx = {
-    options: {},
+    // nano short-circuits the NERDTree probe, keeping this test hermetic.
+    options: { editor: "nano" },
     tool: {
       transform: async (cb: (editor: unknown) => void) => {
         cb({ add: (tool: { name: string }) => toolNames.add(tool.name) })
@@ -31,7 +32,7 @@ describe("plugin entry", () => {
     const { ctx, toolNames, skillIds } = fakeCtx()
     await plugin.setup(ctx as never)
     expect(toolNames.has("tmux_context")).toBe(true)
-    expect(toolNames.size).toBe(6)
+    expect(toolNames.size).toBe(7)
     expect(skillIds.has("tmux")).toBe(true)
   })
 })

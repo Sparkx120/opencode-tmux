@@ -1,6 +1,6 @@
 # opencode-tmux
 
-An OpenCode V2 plugin that adds a small set of tmux tools and one `tmux` skill that documents how to use them.
+An OpenCode V2 plugin that adds a small set of tmux tools and skills that document how to use them.
 
 ## What it does
 
@@ -16,19 +16,20 @@ Add a `plugins` entry to `opencode.jsonc`. The object form lets you set the plug
 ```jsonc
 {
   "plugins": [
-    { "package": "opencode-tmux", "options": { "pane": "%6", "shell": "bash" } }
+    { "package": "opencode-tmux", "options": { "pane": "%6", "shell": "bash", "editor": "nvim" } }
   ]
 }
 ```
 
-Both options are optional.
+The options are optional.
 
 - `pane` — pins the default target for tools that take one, including `tmux_new` and `tmux_kill`. It sits above the directory heuristic, so a pinned pane is never second-guessed. Without it, an omitted target resolves to the session's pane (or `$TMUX_PANE` as a fallback). It accepts a pane id such as `%6`, or a coordinate such as `work:0.1`.
 - `shell` — the shell used to run a `command` for `tmux_new`. Defaults to `sh`. The command runs as `<shell> -c <command>`, so pipes, redirects, `&&`, and globs work.
+- `editor` — the editor `tmux_edit` opens. The editor is resolved in order: this option, then `$EDITOR`, then `vim`, then `nano`, taking the first that exists. The OpenCode server's environment is not the user's interactive shell, so the resolved editor can differ from what the user expects; this option is the fix.
 
 ## Permissions
 
-The tools that run a command in a shell — `tmux_send`, and `tmux_new` when it carries a `command` — go through OpenCode's shell permission rules before acting. They assert the same `shell` action OpenCode's own shell tool uses, with the raw command as the resource (the string you would type, not its `<shell> -c` wrapper), so rules such as `bun test*` match and your existing approvals apply. A denial rejects the tool call with the reason.
+The tools that run a command in a shell — `tmux_send`, `tmux_new` when it carries a `command`, and `tmux_edit` — go through OpenCode's shell permission rules before acting. They assert the same `shell` action OpenCode's own shell tool uses, with the raw command as the resource (the string you would type, not its `<shell> -c` wrapper), so rules such as `bun test*` match and your existing approvals apply. A denial rejects the tool call with the reason.
 
 ## Tools
 
@@ -38,6 +39,7 @@ The tools that run a command in a shell — `tmux_send`, and `tmux_new` when it 
 - `tmux_kill` — kill a pane or window, refusing the agent's own pane and its window.
 - `tmux_send` — send text or a command to a pane.
 - `tmux_capture` — read a pane's contents, waiting for it to settle.
+- `tmux_edit` — open the editor on a file or folder, on explicit request only.
 
 Every tool defaults its target to the agent pane unless it is given one. Every tool description tells the model to load the `tmux` skill first. The skill carries the addressing model, the argument reference for each tool, and the known pitfalls.
 
