@@ -60,7 +60,11 @@ export function isNano(editor: string): boolean {
   return basename(editor) === "nano"
 }
 
+// `-N` (nocompatible) is essential: plain `-es` starts vi-compatible and skips
+// packages, so NERDTree would never be found even when installed. `-es` runs ex
+// silently; `cquit` exits non-zero when the command is missing.
 export const NERD_TREE_PROBE_ARGS = [
+  "-N",
   "-es",
   "-c",
   'if !exists(":NERDTree") | cquit | endif',

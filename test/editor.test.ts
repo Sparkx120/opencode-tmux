@@ -109,8 +109,10 @@ describe("editorInvocation", () => {
     )
   })
 
-  test("the probe args run vim in ex mode and check for NERDTree", () => {
-    expect(NERD_TREE_PROBE_ARGS[0]).toBe("-es")
+  test("the probe runs vim nocompatible in ex mode and checks for NERDTree", () => {
+    // -N is required so packages load; plain -es skips them.
+    expect(NERD_TREE_PROBE_ARGS).toContain("-N")
+    expect(NERD_TREE_PROBE_ARGS).toContain("-es")
     expect(NERD_TREE_PROBE_ARGS.join(" ")).toContain("NERDTree")
   })
 })
