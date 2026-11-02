@@ -13,5 +13,5 @@
     "erasableSyntaxOnly": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["index.ts", "src/**/*.ts", "test/**/*.ts"]
+  "include": ["index.ts", "src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"]
 }
