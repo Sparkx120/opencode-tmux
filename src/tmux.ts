@@ -4,7 +4,6 @@
 // comes back as a message field the caller returns to the model as text.
 
 import { execFile } from "node:child_process"
-import { randomUUID } from "node:crypto"
 
 // Fields the skill documents: the session:window.pane address, the pane and
 // window ids, the pane title and the running command.
@@ -163,62 +162,58 @@ export function targetExistsArgv(target: string): string[] {
   return ["display-message", "-p", "-t", target, "-F", "#{pane_id}"]
 }
 
-// Per-call unique, shell-safe sentinel stem for tmux_exec. Alphanumerics only,
-// so it needs no quoting and cannot collide with the pane's older content.
-export function execMarker(): string {
-  return `OCE${randomUUID().replace(/-/g, "").slice(0, 12)}`
+// Sets an option on the pane itself (`-p`). `tmux_exec` uses it to keep its
+// pane after the command exits and to suppress the dead-pane banner, but the
+// builder is generic so both calls share one shape.
+export function paneOptionArgv(target: string, name: string, value: string): string[] {
+  return ["set-option", "-p", "-t", target, name, value]
 }
 
-// One line that brackets the command with a begin marker and an end marker
-// carrying the exit status, so the output can be sliced out of the capture.
-export function bracketedCommand(command: string, marker: string): string {
-  return `echo ${marker}-B; ${command}; echo "${marker}-E:$?"`
+// Runs a command as the pane's own process, replacing its shell. `-k` permits
+// the respawn on a live pane. The shell, the flag, and the command are separate
+// argv elements, so pipes, quotes, and globs reach the command intact. The pane
+// keeps its shell until this call, so the option set above cannot race a fast
+// command into a dead pane.
+export function respawnArgv(target: string, shell: string, command: string): string[] {
+  return ["respawn-pane", "-k", "-t", target, shell, "-c", command]
 }
 
-export interface ExecExtract {
-  /** The command's output, or the raw capture when the markers were not found. */
-  text: string
-  /** Exit status from the end marker; undefined when absent or unparseable. */
-  exit?: number
-  /** false when the markers were missing and the text is the raw capture. */
-  bounded: boolean
+export const PANE_DEAD_FORMAT = "#{pane_dead}"
+export const PANE_DEAD_STATUS_FORMAT = "#{pane_dead_status}"
+
+export function paneDeadArgv(target: string): string[] {
+  return ["display-message", "-p", "-t", target, "-F", PANE_DEAD_FORMAT]
 }
 
-function trimBlankLines(lines: string[]): string[] {
-  let start = 0
-  let end = lines.length
-  while (start < end && lines[start]!.trim() === "") start++
-  while (end > start && lines[end - 1]!.trim() === "") end--
-  return lines.slice(start, end)
+export function paneDeadStatusArgv(target: string): string[] {
+  return ["display-message", "-p", "-t", target, "-F", PANE_DEAD_STATUS_FORMAT]
 }
 
-// Slice the output from the last begin marker to the first end marker after it,
-// so a pane holding earlier runs still resolves to the current one. When either
-// marker is missing, the caller gets the raw capture plus bounded: false, so it
-// can report the boundary failure instead of silently returning partial output.
-export function extractExecOutput(capture: string, marker: string): ExecExtract {
+// The capture of a pane carries the blank rows below the output, and an older
+// tmux that ignores `remain-on-exit-format ""` renders a "Pane is dead" banner.
+// Drop that one line if present, then trim the surrounding blank lines.
+export function cleanExecCapture(capture: string): string {
   const lines = capture.split("\n")
-  const beginMarker = `${marker}-B`
-  const endMarker = `${marker}-E:`
-
-  let begin = -1
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (lines[i]!.includes(beginMarker)) {
-      begin = i
-      break
-    }
+  let end = lines.length
+  while (end > 0 && lines[end - 1]!.trim() === "") end--
+  if (end > 0 && /^Pane is dead\b/.test(lines[end - 1]!.trim())) {
+    end--
+    while (end > 0 && lines[end - 1]!.trim() === "") end--
   }
-  if (begin < 0) return { text: capture.replace(/\s+$/, ""), bounded: false }
+  let start = 0
+  while (start < end && lines[start]!.trim() === "") start++
+  return lines.slice(start, end).join("\n")
+}
 
-  for (let i = begin + 1; i < lines.length; i++) {
-    const at = lines[i]!.indexOf(endMarker)
-    if (at < 0) continue
-    const code = Number.parseInt(lines[i]!.slice(at + endMarker.length).trim(), 10)
-    const exit = Number.isNaN(code) ? undefined : code
-    return { text: trimBlankLines(lines.slice(begin + 1, i)).join("\n"), exit, bounded: true }
-  }
+// The single trailing line that closes a tmux_exec result. The pane is closed on
+// the success path, so it is not named there; a timed-out command keeps its
+// pane, so the timeout trailer names it for the caller to kill or keep watching.
+export function execTrailer(exit: number | undefined): string {
+  return `[tmux_exec: ${exit === undefined ? "exit ?" : `exit ${exit}`}]`
+}
 
-  return { text: capture.replace(/\s+$/, ""), bounded: false }
+export function execTimeoutTrailer(timeoutMs: number, pane: string): string {
+  return `[tmux_exec: still running after ${timeoutMs}ms, pane ${pane}]`
 }
 
 export function sessionForArgv(target: string): string[] {
@@ -244,32 +239,29 @@ export function captureArgv(target: string, opts: CaptureOptions = {}): string[]
   return argv
 }
 
+export const DEFAULT_EXEC_TIMEOUT_MS = 800
+
 export interface ExecWaitOptions {
   timeoutMs?: number
   pollMs?: number
 }
 
-// Poll until extractExecOutput reports a bounded result, i.e. the end marker is
-// present. A stable capture is deliberately NOT the signal: on a fresh pane the
-// capture can be momentarily unchanged between the key send and the first
-// output, so two equal reads would return before the command had run. On
-// timeout the last extract is returned, bounded or not.
-export async function waitForExecOutput(
+// Poll the pane until it reads dead (`1`), bounded by the timeout. Returns true
+// when the command finished in time and false while it is still running, so the
+// caller can decide whether to close the pane or leave it to the caller.
+export async function waitForPaneDead(
   read: () => Promise<string>,
-  marker: string,
   opts: ExecWaitOptions = {},
-): Promise<ExecExtract> {
-  const timeoutMs = opts.timeoutMs ?? 800
+): Promise<boolean> {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS
   const pollMs = opts.pollMs ?? 50
   const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
   const deadline = Date.now() + timeoutMs
-  let extracted = extractExecOutput(await read(), marker)
-  while (!extracted.bounded) {
-    if (Date.now() >= deadline) return extracted
+  for (;;) {
+    if ((await read()).trim() === "1") return true
+    if (Date.now() >= deadline) return false
     await wait(pollMs)
-    extracted = extractExecOutput(await read(), marker)
   }
-  return extracted
 }
 
 export interface SettleOptions {

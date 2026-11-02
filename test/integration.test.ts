@@ -145,69 +145,88 @@ describe.skipIf(!enabled)("live tmux integration", () => {
     }
   })
 
-  // tmux_exec, driven through the real tool: the returned content must be the
-  // command's output plus the trailer, never the echoed line or the fallback.
-  test("tmux_exec returns the command output and exit status without the echo", async () => {
+  // tmux_exec, driven through the real tool: it creates its own pane, runs the
+  // command as that pane's process, returns the output plus the exit trailer,
+  // and closes the pane. Nothing is typed into it, and nothing is left behind.
+  test("tmux_exec runs in its own pane and closes it", async () => {
     const EXEC_SESSION = "ocprobe-exec"
     const tools = new Map<string, { execute: (args: unknown, context: unknown) => Promise<{ content: string }> }>()
-    const ctx = {
-      options: { editor: "nano" },
-      permission: { assert: async () => {} },
-      tool: {
-        transform: async (cb: (editor: unknown) => void) => {
-          cb({ add: (tool: { name: string }) => tools.set(tool.name, tool as never) })
-          return { dispose: async () => {} }
-        },
-      },
-    }
     const cleanup = async () => {
       await run(["kill-session", "-t", EXEC_SESSION])
     }
+    // The pane ids in the throwaway session, sorted, so a run can be shown to
+    // leave nothing behind.
+    const paneIds = async () => {
+      const res = await run(["list-panes", "-t", EXEC_SESSION, "-F", "#{pane_id}"])
+      return res.stdout
+        .trim()
+        .split("\n")
+        .filter((line) => line.length > 0)
+        .sort()
+    }
     try {
-      // Wide enough that the bracketed command does not wrap: a wrapped echo
-      // can put the end-marker text on its own line and be mistaken for output.
       const created = await run(["new-session", "-d", "-s", EXEC_SESSION, "-x", "200", "-y", "24"])
       expect(created.code).toBe(0)
+      const anchorPane = (await run(["display-message", "-p", "-t", EXEC_SESSION, "-F", "#{pane_id}"])).stdout.trim()
+      expect(anchorPane.startsWith("%")).toBe(true)
 
+      const ctx = {
+        options: { editor: "nano", pane: anchorPane },
+        permission: { assert: async () => {} },
+        tool: {
+          transform: async (cb: (editor: unknown) => void) => {
+            cb({ add: (tool: { name: string }) => tools.set(tool.name, tool as never) })
+            return { dispose: async () => {} }
+          },
+        },
+      }
       await registerTools(ctx as never, run, {} as NodeJS.ProcessEnv, {
         exec: async () => 0,
         isDirectory: () => false,
       })
       const exec = tools.get("tmux_exec")!
       const context = { sessionID: "ses", agent: "a", messageID: "m", id: "c" }
+      const before = await paneIds()
 
-      // A known output string: present, and neither the echoed line nor the fallback note.
-      const okCase = await exec.execute(
-        { command: "echo tmux_exec_marker", new: "pane", target: EXEC_SESSION, timeoutMs: 3000 },
-        context,
-      )
+      // A known output: present, and neither the command echo nor the banner.
+      const okCase = await exec.execute({ command: "echo tmux_exec_marker", timeoutMs: 3000 }, context)
       expect(okCase.content).toContain("tmux_exec_marker")
       expect(okCase.content).not.toContain("echo tmux_exec_marker")
-      expect(okCase.content).not.toContain("could not locate the output boundaries")
-      expect(okCase.content).toMatch(/\[tmux_exec: exit 0, pane %\d+\]/)
+      expect(okCase.content).not.toContain("Pane is dead")
+      expect(okCase.content).toMatch(/\[tmux_exec: exit 0\]/)
 
-      // A real listing: output present, exit 0, no fallback.
-      const lsCase = await exec.execute(
-        {
-          command: `ls '${REPO_ROOT}'`,
-          new: "pane",
-          target: EXEC_SESSION,
-          timeoutMs: 3000,
-        },
-        context,
-      )
+      // A real listing: pipes and quotes reach the command intact.
+      const lsCase = await exec.execute({ command: `ls '${REPO_ROOT}' | cat`, timeoutMs: 3000 }, context)
       expect(lsCase.content).toContain("package.json")
       expect(lsCase.content).toContain("index.ts")
-      expect(lsCase.content).not.toContain("could not locate the output boundaries")
-      expect(lsCase.content).toMatch(/\[tmux_exec: exit 0, pane %\d+\]/)
+      expect(lsCase.content).toMatch(/\[tmux_exec: exit 0\]/)
 
-      // A failing command: the non-zero exit is surfaced, still no fallback.
-      const failCase = await exec.execute(
-        { command: "ls /nonexistent-xyz-123", new: "pane", target: EXEC_SESSION, timeoutMs: 3000 },
-        context,
-      )
-      expect(failCase.content).not.toContain("could not locate the output boundaries")
-      expect(failCase.content).toMatch(/\[tmux_exec: exit 2, pane %\d+\]/)
+      // A failing command: the real, non-zero exit status is surfaced.
+      const failCase = await exec.execute({ command: "ls /nonexistent-xyz-123", timeoutMs: 3000 }, context)
+      expect(failCase.content).not.toContain("Pane is dead")
+      expect(failCase.content).toMatch(/\[tmux_exec: exit \d+\]/)
+      expect(failCase.content).not.toMatch(/\[tmux_exec: exit 0\]/)
+
+      // A window is created, used, and closed too.
+      const windowCase = await exec.execute({ command: "echo window_marker", new: "window", timeoutMs: 3000 }, context)
+      expect(windowCase.content).toContain("window_marker")
+      expect(windowCase.content).toMatch(/\[tmux_exec: exit 0\]/)
+
+      // Nothing the completed runs created is left behind.
+      expect(await paneIds()).toEqual(before)
+
+      // A command that outlives the timeout is left running and named.
+      const slowCase = await exec.execute({ command: "sleep 30", timeoutMs: 300 }, context)
+      expect(slowCase.content).toMatch(/\[tmux_exec: still running after 300ms, pane %\d+\]/)
+      const leftPane = /pane (%\d+)\]/.exec(slowCase.content)![1]!
+      const stillThere = await run(["display-message", "-p", "-t", leftPane, "-F", "#{pane_id}"])
+      expect(stillThere.stdout.trim()).toBe(leftPane)
+      expect(await paneIds()).toContain(leftPane)
+
+      // Clean up the pane the timed-out command left behind, and confirm it is gone.
+      expect((await run(killArgv("pane", leftPane))).code).toBe(0)
+      const gone = await run(["display-message", "-p", "-t", leftPane, "-F", "#{pane_id}"])
+      expect(gone.stdout.trim()).toBe("")
     } finally {
       await cleanup()
     }

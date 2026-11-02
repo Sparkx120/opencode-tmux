@@ -579,77 +579,34 @@ describe("tmux_edit", () => {
 })
 
 describe("tmux_exec", () => {
-  const MARKER = "M"
-  const execDeps = { ...DEPS, marker: () => MARKER }
-  // A settled capture as tmux would render it: the echoed command line, the
-  // begin marker's own line, the output, the end marker, then the prompt.
-  const captureWith = (command: string, output: string[], exit: number) =>
-    [`echo ${MARKER}-B; ${command}; echo "${MARKER}-E:$?"`, `${MARKER}-B`, ...output, `${MARKER}-E:${exit}`, "└─ $"].join(
-      "\n",
-    )
+  const isDeadProbe = (argv: string[]) => argv[0] === "display-message" && argv[argv.length - 1] === "#{pane_dead}"
+  const isStatusProbe = (argv: string[]) =>
+    argv[0] === "display-message" && argv[argv.length - 1] === "#{pane_dead_status}"
 
-  test("returns only the command output plus the exit trailer", async () => {
+  // A responder for a successful pane run: the anchor probe, the split, the
+  // option sets, the respawn, the dead probes, the capture, and the kill. The
+  // capture carries the pane's trailing blank padding, which must be trimmed.
+  const runPane = (output = "hello\nworld", exit = 0) => (argv: string[]) => {
+    if (isProbe(argv)) return ok(`${targetOf(argv)}\n`)
+    if (argv[0] === "split-window") return ok("%42\n")
+    if (argv[0] === "capture-pane") return ok(`${output}\n\n\n`)
+    if (isStatusProbe(argv)) return ok(`${exit}\n`)
+    if (isDeadProbe(argv)) return ok("1\n")
+    return ok("")
+  }
+
+  test("runs the command as the created pane's process and returns only its output", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%1" })
-    const { runner, calls } = tmuxRunner((argv) =>
-      isProbe(argv)
-        ? ok(`${targetOf(argv)}\n`)
-        : argv[0] === "capture-pane"
-          ? ok(captureWith("echo hello", ["hello", "world"], 0))
-          : ok(""),
-    )
-    await registerTools(ctx, runner, EMPTY_ENV, execDeps)
+    const { runner, calls } = tmuxRunner(runPane())
+    await registerTools(ctx, runner, EMPTY_ENV)
 
-    const result = await tools.get("tmux_exec")!.execute({ command: "echo hello", target: "%4" }, TEST_CONTEXT)
+    const result = await tools.get("tmux_exec")!.execute({ command: "echo hello" }, TEST_CONTEXT)
     expect(result.content).toBe("hello\nworld\n[tmux_exec: exit 0]")
     expect(assertCalls.length).toBe(1)
     expect(assertCalls[0]!.action).toBe("shell")
     expect(assertCalls[0]!.resources).toEqual(["echo hello"])
     expect(assertCalls[0]!.save).toEqual(["echo hello"])
-    const sends = calls.filter((argv) => argv[0] === "send-keys")
-    expect(sends[0]).toEqual(["send-keys", "-t", "%4", "-l", "--", 'echo M-B; echo hello; echo "M-E:$?"'])
-    expect(sends[1]).toEqual(["send-keys", "-t", "%4", "Enter"])
-    // The whole scrollback is captured, not just the visible pane.
-    expect(calls.find((argv) => argv[0] === "capture-pane")).toEqual(["capture-pane", "-p", "-t", "%4", "-S", "-"])
-  })
-
-  test("surfaces a non-zero exit status", async () => {
-    const { ctx, tools } = fakeCtx({ pane: "%1" })
-    const { runner } = tmuxRunner((argv) =>
-      isProbe(argv) ? ok(`${targetOf(argv)}\n`) : argv[0] === "capture-pane" ? ok(captureWith("boom", ["boom"], 2)) : ok(""),
-    )
-    await registerTools(ctx, runner, EMPTY_ENV, execDeps)
-
-    const result = await tools.get("tmux_exec")!.execute({ command: "boom", target: "%4" }, TEST_CONTEXT)
-    expect(result.content).toBe("boom\n[tmux_exec: exit 2]")
-  })
-
-  test("falls back to the raw capture with a note when the markers are missing", async () => {
-    const { ctx, tools } = fakeCtx({ pane: "%1" })
-    const { runner } = tmuxRunner((argv) =>
-      isProbe(argv) ? ok(`${targetOf(argv)}\n`) : argv[0] === "capture-pane" ? ok("random\nraw\nlines\n") : ok(""),
-    )
-    await registerTools(ctx, runner, EMPTY_ENV, execDeps)
-    const result = await tools.get("tmux_exec")!.execute({ command: "ls", target: "%4", timeoutMs: 20 }, TEST_CONTEXT)
-    expect(result.content).toContain("random\nraw\nlines")
-    expect(result.content).toContain("could not locate the output boundaries")
-    expect(result.content).toContain("[tmux_exec: exit ?]")
-  })
-
-  test("creates a pane and reports it in the trailer", async () => {
-    const { ctx, tools } = fakeCtx({ pane: "%1" })
-    const { runner, calls } = tmuxRunner((argv) =>
-      isProbe(argv)
-        ? ok("%1\n")
-        : argv[0] === "split-window"
-          ? ok("%42\n")
-          : argv[0] === "capture-pane"
-            ? ok(captureWith("echo hi", ["out"], 0))
-            : ok(""),
-    )
-    await registerTools(ctx, runner, EMPTY_ENV, execDeps)
-
-    const result = await tools.get("tmux_exec")!.execute({ command: "echo hi", new: "pane" }, TEST_CONTEXT)
-    expect(result.content).toBe("out\n[tmux_exec: exit 0, pane %42]")
+    // The pane is created with its shell, not with the command as its process.
     expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
       "split-window",
       "-d",
@@ -660,28 +617,87 @@ describe("tmux_exec", () => {
       "%1",
       "-v",
     ])
-    const sends = calls.filter((argv) => argv[0] === "send-keys")
-    expect(sends[0]).toEqual(["send-keys", "-t", "%42", "-l", "--", 'echo M-B; echo hi; echo "M-E:$?"'])
+    // Keep the pane after the command exits, and hide the dead-pane banner.
+    expect(calls.find((argv) => argv[0] === "set-option" && argv[4] === "remain-on-exit")).toEqual([
+      "set-option",
+      "-p",
+      "-t",
+      "%42",
+      "remain-on-exit",
+      "on",
+    ])
+    expect(calls.find((argv) => argv[0] === "set-option" && argv[4] === "remain-on-exit-format")).toEqual([
+      "set-option",
+      "-p",
+      "-t",
+      "%42",
+      "remain-on-exit-format",
+      "",
+    ])
+    // The shell, the flag, and the command are separate elements.
+    expect(calls.find((argv) => argv[0] === "respawn-pane")).toEqual([
+      "respawn-pane",
+      "-k",
+      "-t",
+      "%42",
+      "sh",
+      "-c",
+      "echo hello",
+    ])
+    // The whole scrollback is captured, then the pane is closed.
     expect(calls.find((argv) => argv[0] === "capture-pane")).toEqual(["capture-pane", "-p", "-t", "%42", "-S", "-"])
+    expect(calls.filter((argv) => argv[0] === "kill-pane")).toEqual([["kill-pane", "-t", "%42"]])
+    // Nothing is ever typed into the pane.
+    expect(calls.some((argv) => argv[0] === "send-keys")).toBe(false)
   })
 
-  test("creates a window and reports it in the trailer", async () => {
+  test("surfaces a non-zero exit status and still closes the pane", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%1" })
+    const { runner, calls } = tmuxRunner(runPane("boom", 2))
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_exec")!.execute({ command: "boom" }, TEST_CONTEXT)
+    expect(result.content).toBe("boom\n[tmux_exec: exit 2]")
+    expect(calls.filter((argv) => argv[0] === "kill-pane")).toEqual([["kill-pane", "-t", "%42"]])
+  })
+
+  test("leaves a running command alone and names its pane", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%1" })
     const { runner, calls } = tmuxRunner((argv) =>
       isProbe(argv)
         ? ok("%1\n")
-        : isSessionProbe(argv)
-          ? ok("$3:\n")
-          : argv[0] === "new-window"
-            ? ok("@7\n")
+        : argv[0] === "split-window"
+          ? ok("%42\n")
+          : isDeadProbe(argv)
+            ? ok("0\n")
             : argv[0] === "capture-pane"
-              ? ok(captureWith("echo hi", ["winout"], 0))
+              ? ok("partial\n\n\n")
               : ok(""),
     )
-    await registerTools(ctx, runner, EMPTY_ENV, execDeps)
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_exec")!.execute({ command: "sleep 5", timeoutMs: 20 }, TEST_CONTEXT)
+    expect(result.content).toBe("partial\n[tmux_exec: still running after 20ms, pane %42]")
+    // A running command must not be killed.
+    expect(calls.some((argv) => argv[0] === "kill-pane")).toBe(false)
+  })
+
+  test("creates a window and runs the command in its pane", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%1" })
+    const { runner, calls } = tmuxRunner((argv) => {
+      if (isSessionProbe(argv)) return ok("$3:\n")
+      // The anchor probe targets %1; the window's pane probe targets @7.
+      if (isProbe(argv)) return targetOf(argv).startsWith("@") ? ok("%42\n") : ok("%1\n")
+      if (argv[0] === "new-window") return ok("@7\n")
+      if (argv[0] === "capture-pane") return ok("winout\n\n\n")
+      if (isStatusProbe(argv)) return ok("0\n")
+      if (isDeadProbe(argv)) return ok("1\n")
+      return ok("")
+    })
+    await registerTools(ctx, runner, EMPTY_ENV)
 
     const result = await tools.get("tmux_exec")!.execute({ command: "echo hi", new: "window" }, TEST_CONTEXT)
-    expect(result.content).toBe("winout\n[tmux_exec: exit 0, window @7]")
+    expect(result.content).toBe("winout\n[tmux_exec: exit 0]")
     expect(calls.find((argv) => argv[0] === "new-window")).toEqual([
       "new-window",
       "-d",
@@ -692,37 +708,25 @@ describe("tmux_exec", () => {
       "$3:",
       "-a",
     ])
-    const sends = calls.filter((argv) => argv[0] === "send-keys")
-    expect(sends[0]).toEqual(["send-keys", "-t", "@7", "-l", "--", 'echo M-B; echo hi; echo "M-E:$?"'])
-  })
-
-  test("refuses the anchor pane, omitted or explicit", async () => {
-    const { ctx, tools } = fakeCtx({ pane: "%1" })
-    const { runner, calls } = tmuxRunner(anchorExists())
-    await registerTools(ctx, runner, EMPTY_ENV)
-
-    const omitted = await tools.get("tmux_exec")!.execute({ command: "ls" }, TEST_CONTEXT)
-    expect(omitted.content).toMatch(/refus/i)
-    expect(omitted.content).toContain("another pane")
-    const explicit = await tools.get("tmux_exec")!.execute({ command: "ls", target: "%1" }, TEST_CONTEXT)
-    expect(explicit.content).toMatch(/refus/i)
-    expect(calls.some((argv) => argv[0] === "send-keys")).toBe(false)
+    expect(calls.find((argv) => argv[0] === "respawn-pane")).toEqual([
+      "respawn-pane",
+      "-k",
+      "-t",
+      "%42",
+      "sh",
+      "-c",
+      "echo hi",
+    ])
+    // The window, not the pane, is what was created, so the window is closed.
+    expect(calls.filter((argv) => argv[0] === "kill-window")).toEqual([["kill-window", "-t", "@7"]])
   })
 
   test("honours focus and place for a new pane", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%1" })
-    const { runner, calls } = tmuxRunner((argv) =>
-      isProbe(argv)
-        ? ok("%1\n")
-        : argv[0] === "split-window"
-          ? ok("%42\n")
-          : argv[0] === "capture-pane"
-            ? ok(captureWith("ls", ["out"], 0))
-            : ok(""),
-    )
-    await registerTools(ctx, runner, EMPTY_ENV, execDeps)
+    const { runner, calls } = tmuxRunner(runPane())
+    await registerTools(ctx, runner, EMPTY_ENV)
 
-    await tools.get("tmux_exec")!.execute({ command: "ls", new: "pane", place: "right", focus: true }, TEST_CONTEXT)
+    await tools.get("tmux_exec")!.execute({ command: "ls", place: "right", focus: true }, TEST_CONTEXT)
     expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
       "split-window",
       "-P",
@@ -742,7 +746,7 @@ describe("tmux_exec", () => {
     expect(result.content).toContain("place")
   })
 
-  test("needs a target when it is not creating one", async () => {
+  test("needs an anchor to split", async () => {
     const { ctx, tools } = fakeCtx()
     await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
     const result = await tools.get("tmux_exec")!.execute({ command: "ls" }, TEST_CONTEXT)

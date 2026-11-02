@@ -41,7 +41,7 @@ Or add the plugin to `opencode.jsonc` directly. The bare spec works on its own
 The options are optional.
 
 - `pane` — pins the default target for tools that take one, including `tmux_new` and `tmux_kill`. It sits above the directory heuristic, so a pinned pane is never second-guessed. Without it, an omitted target resolves to the session's pane (or `$TMUX_PANE` as a fallback). It accepts a pane id such as `%1`, or a coordinate such as `work:0.1`.
-- `shell` — the shell used to run a `command` for `tmux_new`. Defaults to `sh`. The command runs as `<shell> -c <command>`, so pipes, redirects, `&&`, and globs work.
+- `shell` — the shell used to run a `command` for `tmux_new` and `tmux_exec`. Defaults to `sh`. The command runs as `<shell> -c <command>`, so pipes, redirects, `&&`, and globs work.
 - `editor` — the editor `tmux_edit` opens. The editor is resolved in order: this option, then `$EDITOR`, then `vim`, then `nano`, taking the first that exists. This option and `$EDITOR` may include arguments, such as `vim -f` or `code --wait`; the value is interpolated unquoted and word-split by the shell. The OpenCode server's environment is not the user's interactive shell, so the resolved editor can differ from what the user expects; this option is the fix.
 
 ## Permissions
@@ -61,10 +61,10 @@ A denial rejects the tool call with the reason.
 - `tmux_kill` — kill a pane or window, refusing the agent's own pane and its window.
 - `tmux_send` — send text or a command to a pane.
 - `tmux_capture` — read a pane's contents, waiting for it to settle.
-- `tmux_exec` — run a shell command in a pane and return only its output, with an exit-status trailer naming any pane or window it created.
+- `tmux_exec` — run a shell command in a pane of its own and return only its output, with an exit-status trailer. The pane is closed afterwards; a command that outlives `timeoutMs` is left running and named in the trailer.
 - `tmux_edit` — open the editor on a file or folder, on explicit request only.
 
-Every tool defaults its target to the agent pane unless it is given one. Every tool description tells the model to load the `tmux` skill first. The skill carries the addressing model, the argument reference for each tool, and the known pitfalls.
+Every tool that takes a target defaults it to the agent pane. `tmux_exec` takes no target: it always creates a pane of its own, split from that anchor. Every tool description tells the model to load the `tmux` skill first. The skill carries the addressing model, the argument reference for each tool, and the known pitfalls.
 
 ## AI Disclosure
 

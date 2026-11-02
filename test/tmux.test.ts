@@ -1,19 +1,23 @@
 import { describe, expect, test } from "bun:test"
 import {
-  bracketedCommand,
   captureArgv,
+  cleanExecCapture,
   CONTEXT_FORMAT,
   contextArgv,
-  execMarker,
-  extractExecOutput,
+  execTimeoutTrailer,
+  execTrailer,
   killArgv,
   nameArgv,
   newArgv,
+  paneDeadArgv,
+  paneDeadStatusArgv,
+  paneOptionArgv,
+  respawnArgv,
   sendKeysArgv,
   settleCapture,
   sessionForArgv,
   targetExistsArgv,
-  waitForExecOutput,
+  waitForPaneDead,
   windowForArgv,
 } from "../src/tmux.js"
 
@@ -305,94 +309,97 @@ describe("captureArgv", () => {
   })
 })
 
-describe("execMarker", () => {
-  test("is a unique, shell-safe token", () => {
-    const a = execMarker()
-    const b = execMarker()
-    expect(a).not.toBe(b)
-    expect(a).toMatch(/^[A-Za-z0-9_]+$/)
-  })
-})
-
-describe("bracketedCommand", () => {
-  test("wraps the command between a begin and an exit-code sentinel on one line", () => {
-    expect(bracketedCommand("echo hi", "M")).toBe('echo M-B; echo hi; echo "M-E:$?"')
-  })
-})
-
-describe("extractExecOutput", () => {
-  const cap = (lines: string[]) => lines.join("\n")
-
-  test("returns the lines between the last begin and its end marker", () => {
-    const capture = cap([
-      'echo M-B; ls; echo "M-E:$?"',
-      "M-B",
-      "file-a",
-      "file-b",
-      "M-E:0",
-      "┌─[user@host]─[/home]",
-      "└─ ls",
+describe("paneOptionArgv", () => {
+  test("sets a pane option on the pane itself", () => {
+    expect(paneOptionArgv("%1", "remain-on-exit", "on")).toEqual([
+      "set-option",
+      "-p",
+      "-t",
+      "%1",
+      "remain-on-exit",
+      "on",
     ])
-    expect(extractExecOutput(capture, "M")).toEqual({ text: "file-a\nfile-b", exit: 0, bounded: true })
   })
 
-  test("uses the last begin marker when old content holds an earlier one", () => {
-    const capture = cap(["M-B", "stale output", "M-E:0", 'echo M-B; x; echo "M-E:$?"', "M-B", "fresh", "M-E:2"])
-    expect(extractExecOutput(capture, "M")).toEqual({ text: "fresh", exit: 2, bounded: true })
-  })
-
-  test("trims surrounding blank lines", () => {
-    const capture = cap(["M-B", "", "out", "", "M-E:0"])
-    expect(extractExecOutput(capture, "M")).toEqual({ text: "out", exit: 0, bounded: true })
-  })
-
-  test("empty output yields an empty body", () => {
-    expect(extractExecOutput(cap(["M-B", "M-E:0"]), "M")).toEqual({ text: "", exit: 0, bounded: true })
-  })
-
-  test("falls back to the raw capture when the markers are missing", () => {
-    const out = extractExecOutput(cap(["some", "raw", "output"]), "M")
-    expect(out).toEqual({ text: "some\nraw\noutput", exit: undefined, bounded: false })
-  })
-
-  test("reports an unknown exit when the end marker has no number", () => {
-    expect(extractExecOutput(cap(["M-B", "out", "M-E:?"]), "M")).toEqual({
-      text: "out",
-      exit: undefined,
-      bounded: true,
-    })
+  test("an empty value is passed as its own element", () => {
+    expect(paneOptionArgv("%1", "remain-on-exit-format", "")).toEqual([
+      "set-option",
+      "-p",
+      "-t",
+      "%1",
+      "remain-on-exit-format",
+      "",
+    ])
   })
 })
 
-describe("waitForExecOutput", () => {
-  test("keeps polling until the end marker appears", async () => {
-    const reads = ["M-B\n", "M-B\npartial\n", "M-B\nout\nM-E:0\n"]
+describe("respawnArgv", () => {
+  test("passes the shell, the flag, and the command as separate elements", () => {
+    expect(respawnArgv("%1", "sh", "echo hi")).toEqual(["respawn-pane", "-k", "-t", "%1", "sh", "-c", "echo hi"])
+  })
+
+  test("keeps pipes, quotes, and globs intact in one element", () => {
+    expect(respawnArgv("%1", "bash", 'echo "a|b" | tr a-z A-Z && ls *.ts')).toEqual([
+      "respawn-pane",
+      "-k",
+      "-t",
+      "%1",
+      "bash",
+      "-c",
+      'echo "a|b" | tr a-z A-Z && ls *.ts',
+    ])
+  })
+})
+
+describe("pane dead probes", () => {
+  test("paneDeadArgv asks for the dead flag", () => {
+    expect(paneDeadArgv("%1")).toEqual(["display-message", "-p", "-t", "%1", "-F", "#{pane_dead}"])
+  })
+
+  test("paneDeadStatusArgv asks for the exit status", () => {
+    expect(paneDeadStatusArgv("%1")).toEqual(["display-message", "-p", "-t", "%1", "-F", "#{pane_dead_status}"])
+  })
+})
+
+describe("cleanExecCapture", () => {
+  test("trims the pane's trailing blank padding", () => {
+    expect(cleanExecCapture("out-a\npipe ABC\n\n\n\n")).toBe("out-a\npipe ABC")
+  })
+
+  test("strips a dead-pane banner line and the blanks around it", () => {
+    expect(cleanExecCapture("out\n\nPane is dead (status 3, Mon Jan 1 00:00:00 2024)\n\n")).toBe("out")
+  })
+
+  test("an empty capture stays empty", () => {
+    expect(cleanExecCapture("\n\n\n")).toBe("")
+  })
+})
+
+describe("exec trailer", () => {
+  test("names only the exit status on the success path", () => {
+    expect(execTrailer(0)).toBe("[tmux_exec: exit 0]")
+    expect(execTrailer(2)).toBe("[tmux_exec: exit 2]")
+    expect(execTrailer(undefined)).toBe("[tmux_exec: exit ?]")
+  })
+
+  test("names the pane and the wait on the timeout path", () => {
+    expect(execTimeoutTrailer(800, "%42")).toBe("[tmux_exec: still running after 800ms, pane %42]")
+  })
+})
+
+describe("waitForPaneDead", () => {
+  test("returns true once the pane reads dead", async () => {
+    const reads = ["0\n", "0\n", "1\n"]
     let n = 0
-    const out = await waitForExecOutput(async () => reads[Math.min(n++, reads.length - 1)]!, "M", {
-      timeoutMs: 200,
-      pollMs: 1,
-    })
-    expect(out).toEqual({ text: "out", exit: 0, bounded: true })
+    const out = await waitForPaneDead(async () => reads[Math.min(n++, reads.length - 1)]!, { timeoutMs: 200, pollMs: 1 })
+    expect(out).toBe(true)
     expect(n).toBe(3)
   })
 
-  test("does not stop at a stable but marker-less capture", async () => {
-    // Two byte-identical reads, then the markers: equality must not end the wait.
-    const reads = ["M-B\n", "M-B\n", "M-B\nout\nM-E:7\n"]
+  test("returns false when the deadline passes while the pane lives", async () => {
     let n = 0
-    const out = await waitForExecOutput(async () => reads[Math.min(n++, reads.length - 1)]!, "M", {
-      timeoutMs: 200,
-      pollMs: 1,
-    })
-    expect(out).toEqual({ text: "out", exit: 7, bounded: true })
-    expect(n).toBe(3)
-  })
-
-  test("falls back to the last capture when the timeout expires", async () => {
-    let n = 0
-    const out = await waitForExecOutput(async () => `M-B\ntick ${n++}\n`, "M", { timeoutMs: 20, pollMs: 1 })
-    expect(out.bounded).toBe(false)
-    expect(out.text).toContain("M-B")
+    const out = await waitForPaneDead(async () => `0\n${n++}`, { timeoutMs: 20, pollMs: 1 })
+    expect(out).toBe(false)
     expect(n).toBeGreaterThan(1)
   })
 })

@@ -50,7 +50,9 @@ tmux capabilities through tools, and teaches their use through skills.
 
 ## Execution
 
-- A general-purpose exec runs a command in a pane and returns its output.
+- A general-purpose exec runs a command in a pane of its own and returns its output and
+  exit status. It writes nothing into any pane it does not own, and it cleans up the pane
+  it created. A command that outlives the tool's timeout is left running and reported.
 - Commands run through the plugin are permissioned explicitly, so a hardened shell
   permission set stays intact instead of being loosened to accommodate the plugin.
 
