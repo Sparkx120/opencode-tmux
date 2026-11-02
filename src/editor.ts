@@ -105,22 +105,25 @@ export interface EditorInvocation {
 }
 
 // The pane command, `exec`-prefixed so the shell is replaced and the pane lives
-// as long as the editor. A directory opened with a vim-family editor uses
-// NERDTree when present, falls back to the editor's own directory view
-// otherwise, and is refused for nano, which cannot browse a folder.
+// as long as the editor. The editor is a user-supplied command string ($EDITOR
+// or the plugin option), so it is interpolated unquoted and allowed to carry
+// its own arguments, as git and man do; only the path and the NERDTree argument
+// are quoted. A directory opened with a vim-family editor uses NERDTree when
+// present, falls back to the editor's own directory view otherwise, and is
+// refused for nano, which cannot browse a folder.
 export function editorInvocation(input: EditorInvocationInput): EditorInvocation {
   const { editor, path, isDirectory } = input
   if (isDirectory) {
     if (isVimFamily(editor)) {
       if (input.nerdtree) {
-        return { command: `exec ${shellQuote(editor)} -c ${shellQuote(`NERDTree ${path}`)}`, nerdtree: true }
+        return { command: `exec ${editor} -c ${shellQuote(`NERDTree ${path}`)}`, nerdtree: true }
       }
-      return { command: `exec ${shellQuote(editor)} ${shellQuote(path)}`, nerdtree: false }
+      return { command: `exec ${editor} ${shellQuote(path)}`, nerdtree: false }
     }
     if (isNano(editor)) {
       return { error: `${editor} cannot browse a folder; open a file, or use an editor that can`, nerdtree: false }
     }
-    return { command: `exec ${shellQuote(editor)} ${shellQuote(path)}`, nerdtree: false }
+    return { command: `exec ${editor} ${shellQuote(path)}`, nerdtree: false }
   }
-  return { command: `exec ${shellQuote(editor)} ${shellQuote(path)}`, nerdtree: false }
+  return { command: `exec ${editor} ${shellQuote(path)}`, nerdtree: false }
 }

@@ -25,7 +25,7 @@ The options are optional.
 
 - `pane` — pins the default target for tools that take one, including `tmux_new` and `tmux_kill`. It sits above the directory heuristic, so a pinned pane is never second-guessed. Without it, an omitted target resolves to the session's pane (or `$TMUX_PANE` as a fallback). It accepts a pane id such as `%6`, or a coordinate such as `work:0.1`.
 - `shell` — the shell used to run a `command` for `tmux_new`. Defaults to `sh`. The command runs as `<shell> -c <command>`, so pipes, redirects, `&&`, and globs work.
-- `editor` — the editor `tmux_edit` opens. The editor is resolved in order: this option, then `$EDITOR`, then `vim`, then `nano`, taking the first that exists. The OpenCode server's environment is not the user's interactive shell, so the resolved editor can differ from what the user expects; this option is the fix.
+- `editor` — the editor `tmux_edit` opens. The editor is resolved in order: this option, then `$EDITOR`, then `vim`, then `nano`, taking the first that exists. This option and `$EDITOR` may include arguments, such as `vim -f` or `code --wait`; the value is interpolated unquoted and word-split by the shell. The OpenCode server's environment is not the user's interactive shell, so the resolved editor can differ from what the user expects; this option is the fix.
 
 ## Permissions
 

@@ -455,7 +455,7 @@ describe("tmux_edit", () => {
       "-h",
       "sh",
       "-c",
-      "exec 'vim' '/tmp/f.txt'",
+      "exec vim '/tmp/f.txt'",
     ])
   })
 
@@ -477,7 +477,7 @@ describe("tmux_edit", () => {
       "-b",
       "sh",
       "-c",
-      "exec 'vim' '/tmp/f.txt'",
+      "exec vim '/tmp/f.txt'",
     ])
   })
 
@@ -500,7 +500,7 @@ describe("tmux_edit", () => {
       "proj",
       "sh",
       "-c",
-      "exec 'vim' '/tmp/proj'",
+      "exec vim '/tmp/proj'",
     ])
   })
 
@@ -511,7 +511,7 @@ describe("tmux_edit", () => {
 
     const result = await tools.get("tmux_edit")!.execute({ path: "/tmp/proj" }, TEST_CONTEXT)
     expect(result.content).toContain("NERDTree")
-    expect(calls.find((argv) => argv[0] === "split-window")).toContain("exec 'vim' -c 'NERDTree /tmp/proj'")
+    expect(calls.find((argv) => argv[0] === "split-window")).toContain("exec vim -c 'NERDTree /tmp/proj'")
   })
 
   test("a directory opens plainly when NERDTree is absent", async () => {
@@ -521,7 +521,7 @@ describe("tmux_edit", () => {
 
     const result = await tools.get("tmux_edit")!.execute({ path: "/tmp/proj" }, TEST_CONTEXT)
     expect(result.content).not.toContain("NERDTree")
-    expect(calls.find((argv) => argv[0] === "split-window")).toContain("exec 'vim' '/tmp/proj'")
+    expect(calls.find((argv) => argv[0] === "split-window")).toContain("exec vim '/tmp/proj'")
   })
 
   test("nano on a directory is reported and nothing opens", async () => {
@@ -553,7 +553,7 @@ describe("tmux_edit", () => {
     await tools.get("tmux_edit")!.execute({ path: "/tmp/f.txt" }, TEST_CONTEXT)
     expect(assertCalls.length).toBe(1)
     expect(assertCalls[0]!.action).toBe("shell")
-    expect(assertCalls[0]!.resources).toEqual(["exec 'vim' '/tmp/f.txt'"])
+    expect(assertCalls[0]!.resources).toEqual(["exec vim '/tmp/f.txt'"])
   })
 })
 

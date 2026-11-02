@@ -21,6 +21,8 @@ The editor is resolved once, in this order:
 2. `$EDITOR`.
 3. `vim`, then `nano`, if present on the server's PATH.
 
+The option and `$EDITOR` may carry arguments, such as `vim -f` or `code --wait`; the value is word-split by the shell, with only the file path quoted.
+
 The environment is the server's, not the user's interactive shell, so the resolved editor can differ from what the user expects. The `editor` option is the fix. When nothing resolves, the tool returns a message naming these three ways and opens nothing.
 
 ## Placement and focus

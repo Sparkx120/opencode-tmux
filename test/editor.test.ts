@@ -72,29 +72,47 @@ describe("shellQuote", () => {
 describe("editorInvocation", () => {
   test("vim on a directory with NERDTree runs the NERDTree command", () => {
     expect(editorInvocation({ editor: "vim", path: "/tmp/proj", isDirectory: true, nerdtree: true })).toEqual({
-      command: "exec 'vim' -c 'NERDTree /tmp/proj'",
+      command: "exec vim -c 'NERDTree /tmp/proj'",
       nerdtree: true,
     })
   })
 
   test("vim on a directory without NERDTree opens the directory", () => {
     expect(editorInvocation({ editor: "vim", path: "/tmp/proj", isDirectory: true, nerdtree: false })).toEqual({
-      command: "exec 'vim' '/tmp/proj'",
+      command: "exec vim '/tmp/proj'",
       nerdtree: false,
     })
   })
 
   test("vim on a file ignores NERDTree", () => {
     expect(editorInvocation({ editor: "vim", path: "/tmp/f.txt", isDirectory: false, nerdtree: true })).toEqual({
-      command: "exec 'vim' '/tmp/f.txt'",
+      command: "exec vim '/tmp/f.txt'",
       nerdtree: false,
     })
+  })
+
+  test("an editor carrying its own arguments is interpolated unquoted", () => {
+    expect(
+      editorInvocation({ editor: "vim -f", path: "/tmp/f.txt", isDirectory: false, nerdtree: false }).command,
+    ).toBe("exec vim -f '/tmp/f.txt'")
+    expect(
+      editorInvocation({ editor: "code --wait", path: "/tmp/f.txt", isDirectory: false, nerdtree: false }).command,
+    ).toBe("exec code --wait '/tmp/f.txt'")
+    expect(
+      editorInvocation({ editor: "emacsclient -nw", path: "/tmp/f.txt", isDirectory: false, nerdtree: false }).command,
+    ).toBe("exec emacsclient -nw '/tmp/f.txt'")
+  })
+
+  test("an editor carrying its own arguments still gets the path quoted", () => {
+    expect(
+      editorInvocation({ editor: "vim -f", path: "/tmp/a b", isDirectory: false, nerdtree: false }).command,
+    ).toBe("exec vim -f '/tmp/a b'")
   })
 
   test("nvim on a directory uses NERDTree too", () => {
     expect(
       editorInvocation({ editor: "/usr/bin/nvim", path: "/tmp/proj", isDirectory: true, nerdtree: true }).command,
-    ).toBe("exec '/usr/bin/nvim' -c 'NERDTree /tmp/proj'")
+    ).toBe("exec /usr/bin/nvim -c 'NERDTree /tmp/proj'")
   })
 
   test("nano on a directory reports that it cannot browse a folder", () => {
@@ -103,9 +121,15 @@ describe("editorInvocation", () => {
     expect(out.error).toContain("folder")
   })
 
+  test("a path with spaces stays quoted", () => {
+    expect(
+      editorInvocation({ editor: "vim", path: "/tmp/a b", isDirectory: false, nerdtree: false }).command,
+    ).toBe("exec vim '/tmp/a b'")
+  })
+
   test("a path with a quote is safely quoted", () => {
     expect(editorInvocation({ editor: "vim", path: "/tmp/it's", isDirectory: false, nerdtree: false }).command).toBe(
-      "exec 'vim' '/tmp/it'\\''s'",
+      "exec vim '/tmp/it'\\''s'",
     )
   })
 
