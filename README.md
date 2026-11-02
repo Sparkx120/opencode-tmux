@@ -43,13 +43,13 @@ Every tool defaults its target to the agent pane unless it is given one. Every t
 
 ## AI Disclosure
 
-Rough split per phase, human on the left of the bar and AI on the right:
+Rough split per phase: the left figure is human and the right is AI, and the solid blocks mark the larger share, with both sides solid at 50/50.
 
 | Work type | Human / AI |
 | --- | --- |
 | Architecture | 75%  ███████│░░░  25% |
 | Requirements | 90%  █████████│░  10% |
-| Implementation (human oversight) | 0%  │░░░░░░░░░░  100% |
-| Testing | 0%  │░░░░░░░░░░  100% |
-| Review | 50%  █████│░░░░░  50% |
-| Documentation | 10%  █│░░░░░░░░░  90% |
+| Implementation (human oversight) | 0%  │██████████  100% |
+| Testing | 0%  │██████████  100% |
+| Review | 50%  █████│█████  50% |
+| Documentation | 10%  ░│█████████  90% |
