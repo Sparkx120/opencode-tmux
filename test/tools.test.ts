@@ -12,10 +12,29 @@ interface Captured {
   execute: (args: unknown, context: unknown) => Promise<{ content: string }>
 }
 
-function fakeCtx(options: Record<string, unknown> = {}): { ctx: Plugin.Context; tools: Map<string, Captured> } {
+interface AssertCall {
+  action: string
+  resources: string[]
+  save?: string[]
+  sessionID: string
+  agent?: string
+  source?: { type: string; messageID: string; id: string }
+}
+
+function fakeCtx(
+  options: Record<string, unknown> = {},
+  assertImpl: (input: AssertCall) => Promise<void> = async () => {},
+): { ctx: Plugin.Context; tools: Map<string, Captured>; assertCalls: AssertCall[] } {
   const tools = new Map<string, Captured>()
+  const assertCalls: AssertCall[] = []
   const ctx = {
     options,
+    permission: {
+      assert: async (input: AssertCall) => {
+        assertCalls.push(input)
+        await assertImpl(input)
+      },
+    },
     tool: {
       transform: async (cb: (editor: unknown) => void) => {
         const editor = {
@@ -28,8 +47,11 @@ function fakeCtx(options: Record<string, unknown> = {}): { ctx: Plugin.Context; 
       },
     },
   } as unknown as Plugin.Context
-  return { ctx, tools }
+  return { ctx, tools, assertCalls }
 }
+
+const TEST_CONTEXT = { sessionID: "ses_test", agent: "build", messageID: "msg_x", id: "call_x" }
+
 
 const ok = (stdout: string): RunResult => ({ stdout, stderr: "", code: 0, message: "" })
 
@@ -189,5 +211,79 @@ describe("registerTools", () => {
 
     const result = await tools.get("tmux_capture")!.execute({}, {})
     expect(result.content).toContain("can't find pane")
+  })
+})
+
+describe("permission gate", () => {
+  test("tmux_send asserts the shell action with the text as the resource", async () => {
+    const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
+    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+
+    await tools.get("tmux_send")!.execute({ text: "rm -rf /" }, TEST_CONTEXT)
+
+    expect(assertCalls.length).toBe(1)
+    const call = assertCalls[0]!
+    expect(call.action).toBe("shell")
+    expect(call.resources).toEqual(["rm -rf /"])
+    expect(call.save).toEqual(["rm -rf /"])
+    expect(call.sessionID).toBe("ses_test")
+    expect(call.agent).toBe("build")
+    expect(call.source).toEqual({ type: "tool", messageID: "msg_x", id: "call_x" })
+  })
+
+  test("tmux_new_pane skips the gate when no command is given", async () => {
+    const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
+    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+
+    await tools.get("tmux_new_pane")!.execute({}, TEST_CONTEXT)
+    expect(assertCalls.length).toBe(0)
+  })
+
+  test("tmux_new_pane gates the shell-wrapped command", async () => {
+    const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6", shell: "bash" })
+    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+
+    await tools.get("tmux_new_pane")!.execute({ command: "ls | wc -l" }, TEST_CONTEXT)
+    expect(assertCalls.length).toBe(1)
+    expect(assertCalls[0]!.action).toBe("shell")
+    expect(assertCalls[0]!.resources).toEqual(["bash -c ls | wc -l"])
+  })
+
+  test("tmux_new_window gates the shell-wrapped command", async () => {
+    const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
+    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+
+    await tools.get("tmux_new_window")!.execute({ command: "echo hi" }, TEST_CONTEXT)
+    expect(assertCalls.length).toBe(1)
+    expect(assertCalls[0]!.action).toBe("shell")
+    expect(assertCalls[0]!.resources).toEqual(["sh -c echo hi"])
+  })
+
+  test("tmux_new_window skips the gate when no command is given", async () => {
+    const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
+    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+
+    await tools.get("tmux_new_window")!.execute({}, TEST_CONTEXT)
+    expect(assertCalls.length).toBe(0)
+  })
+
+  test("a rejecting assert propagates instead of returning content", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" }, async () => {
+      throw new Error("permission denied by user")
+    })
+    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+
+    await expect(tools.get("tmux_send")!.execute({ text: "x" }, TEST_CONTEXT)).rejects.toThrow("permission denied")
+  })
+
+  test("a rejection stops the command from ever running", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" }, async () => {
+      throw new Error("nope")
+    })
+    const { runner, calls } = recordingRunner()
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    await expect(tools.get("tmux_new_pane")!.execute({ command: "ls" }, TEST_CONTEXT)).rejects.toThrow("nope")
+    expect(calls.length).toBe(0)
   })
 })

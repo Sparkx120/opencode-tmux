@@ -21,6 +21,16 @@ import type { Runner } from "./tmux.js"
 const NO_TARGET =
   "no tmux target available: pass a target, set the plugin `pane` option, or run inside tmux with $TMUX_PANE set"
 
+// The action name OpenCode's own shell tool uses (packages/core tool/plugin/shell.ts
+// sets `action: name` with `name = "shell"`), so the same permission rules apply.
+const SHELL_ACTION = "shell"
+
+// The shell-wrapped form of a command, as it will run in the pane. This is the
+// resource the permission gate evaluates.
+function shellCommand(shell: string, command: string): string {
+  return `${shell} -c ${command}`
+}
+
 function paneOption(ctx: Plugin.Context): string | undefined {
   const value = ctx.options.pane
   return typeof value === "string" ? value : undefined
@@ -109,10 +119,20 @@ export async function registerTools(
         },
         additionalProperties: false,
       },
-      execute: async (raw) => {
+      execute: async (raw, context) => {
         const args = raw as { target?: string; name?: string; command?: string; vertical?: boolean }
         const resolved = target(args.target)
         if (!resolved) return { content: NO_TARGET }
+        if (args.command) {
+          await ctx.permission.assert({
+            sessionID: context.sessionID,
+            agent: context.agent,
+            source: { type: "tool", messageID: context.messageID, id: context.id },
+            action: SHELL_ACTION,
+            resources: [shellCommand(shell, args.command)],
+            save: [shellCommand(shell, args.command)],
+          })
+        }
         const argv = newPaneArgv(resolved, { vertical: args.vertical, command: args.command, shell })
         const res = await runner(argv)
         if (res.code !== 0) return failure(argv, res.message)
@@ -139,10 +159,20 @@ export async function registerTools(
         },
         additionalProperties: false,
       },
-      execute: async (raw) => {
+      execute: async (raw, context) => {
         const args = raw as { target?: string; name?: string; command?: string }
         const resolved = target(args.target)
         if (!resolved) return { content: NO_TARGET }
+        if (args.command) {
+          await ctx.permission.assert({
+            sessionID: context.sessionID,
+            agent: context.agent,
+            source: { type: "tool", messageID: context.messageID, id: context.id },
+            action: SHELL_ACTION,
+            resources: [shellCommand(shell, args.command)],
+            save: [shellCommand(shell, args.command)],
+          })
+        }
         const argv = newWindowArgv(resolved, { name: args.name, command: args.command, shell })
         const res = await runner(argv)
         if (res.code !== 0) return failure(argv, res.message)
@@ -166,12 +196,20 @@ export async function registerTools(
         required: ["text"],
         additionalProperties: false,
       },
-      execute: async (raw) => {
+      execute: async (raw, context) => {
         const args = raw as { target?: string; text?: string; literal?: boolean; enter?: boolean }
         const resolved = target(args.target)
         if (!resolved) return { content: NO_TARGET }
         if (typeof args.text !== "string") return { content: "tmux_send: text is required" }
         const enter = args.enter !== false
+        await ctx.permission.assert({
+          sessionID: context.sessionID,
+          agent: context.agent,
+          source: { type: "tool", messageID: context.messageID, id: context.id },
+          action: SHELL_ACTION,
+          resources: [args.text],
+          save: [args.text],
+        })
         for (const argv of sendKeysArgv(resolved, args.text, { literal: args.literal, enter })) {
           const res = await runner(argv)
           if (res.code !== 0) return failure(argv, res.message)
