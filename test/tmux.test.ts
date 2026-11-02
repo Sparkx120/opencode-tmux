@@ -9,6 +9,7 @@ import {
   resolveTarget,
   sendKeysArgv,
   settleCapture,
+  sessionForArgv,
   targetExistsArgv,
 } from "../src/tmux.js"
 
@@ -135,27 +136,27 @@ describe("newPaneArgv", () => {
 })
 
 describe("newWindowArgv", () => {
-  test("targets the agent's session and prints the window id", () => {
-    expect(newWindowArgv("%6", {})).toEqual([
+  test("targets a session and prints the window id", () => {
+    expect(newWindowArgv("$3:", {})).toEqual([
       "new-window",
       "-d",
       "-P",
       "-F",
       "#{window_id}",
       "-t",
-      "%6",
+      "$3:",
     ])
   })
 
   test("adds -n for a name and the shell-wrapped command last", () => {
-    expect(newWindowArgv("@1", { name: "logs", command: "tail -f app.log" })).toEqual([
+    expect(newWindowArgv("$3:", { name: "logs", command: "tail -f app.log" })).toEqual([
       "new-window",
       "-d",
       "-P",
       "-F",
       "#{window_id}",
       "-t",
-      "@1",
+      "$3:",
       "-n",
       "logs",
       "sh",
@@ -165,14 +166,14 @@ describe("newWindowArgv", () => {
   })
 
   test("honors a custom shell", () => {
-    expect(newWindowArgv("@1", { command: "echo hi", shell: "bash" })).toEqual([
+    expect(newWindowArgv("$3:", { command: "echo hi", shell: "bash" })).toEqual([
       "new-window",
       "-d",
       "-P",
       "-F",
       "#{window_id}",
       "-t",
-      "@1",
+      "$3:",
       "bash",
       "-c",
       "echo hi",
@@ -209,6 +210,12 @@ describe("sendKeysArgv", () => {
 describe("targetExistsArgv", () => {
   test("asks tmux for the pane id of a target", () => {
     expect(targetExistsArgv("%6")).toEqual(["display-message", "-p", "-t", "%6", "-F", "#{pane_id}"])
+  })
+})
+
+describe("sessionForArgv", () => {
+  test("asks tmux for the session of a target, colon-terminated", () => {
+    expect(sessionForArgv("%6")).toEqual(["display-message", "-p", "-t", "%6", "-F", "#{session_id}:"])
   })
 })
 

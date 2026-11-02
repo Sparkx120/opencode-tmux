@@ -45,7 +45,7 @@ Splits a pane and returns the new pane id. `vertical` defaults to true, which sp
 
 Input: optional `target`, `name`, `command`.
 
-Creates a detached window in the agent's session and returns its window id. The window lands in the session of the resolved target, so it appears next to the agent's own window instead of in an undefined "current" session. `command` runs as `<shell> -c <command>` (the plugin `shell` option, default `sh`). A call that carries a `command` goes through the shell permission gate first. Use it for long-running work that deserves its own window rather than a split.
+Creates a detached window in the agent's session and returns its window id. The target is resolved to its session id first, because `new-window` takes a session, not a pane: a pane id fails with "can't specify pane here". The window lands in the agent's session next to its own window, instead of in an undefined "current" session. `command` runs as `<shell> -c <command>` (the plugin `shell` option, default `sh`). A call that carries a `command` goes through the shell permission gate first. Use it for long-running work that deserves its own window rather than a split.
 
 ### `tmux_send`
 

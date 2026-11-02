@@ -88,6 +88,9 @@ export interface NewWindowOptions {
   shell?: string
 }
 
+// `target` must be a session (e.g. `$3:`), not a pane or window: tmux 3.8
+// rejects a pane here ("can't specify pane here") and a bare window id tries to
+// reuse a window index. The caller resolves the session first.
 export function newWindowArgv(target: string, opts: NewWindowOptions = {}): string[] {
   const argv = ["new-window", "-d", "-P", "-F", "#{window_id}", "-t", target]
   if (opts.name) argv.push("-n", opts.name)
@@ -120,6 +123,10 @@ export function sendKeysArgv(target: string, text: string, opts: SendOptions = {
 // target is gone (e.g. a stale $TMUX_PANE inherited by the daemon).
 export function targetExistsArgv(target: string): string[] {
   return ["display-message", "-p", "-t", target, "-F", "#{pane_id}"]
+}
+
+export function sessionForArgv(target: string): string[] {
+  return ["display-message", "-p", "-t", target, "-F", "#{session_id}:"]
 }
 
 export interface CaptureOptions {

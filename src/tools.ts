@@ -14,6 +14,7 @@ import {
   resolveTarget,
   run as defaultRun,
   sendKeysArgv,
+  sessionForArgv,
   settleCapture,
   targetExistsArgv,
 } from "./tmux.js"
@@ -59,6 +60,15 @@ export async function registerTools(
   const confirmed = async (resolved: string): Promise<boolean> => {
     const res = await runner(targetExistsArgv(resolved))
     return res.code === 0 && res.stdout.trim() !== ""
+  }
+
+  // new-window wants a target-window, and a pane is not one. Resolve the pane
+  // or window to its session (as `$N:`) for the `-t` argument.
+  const sessionOf = async (resolved: string): Promise<string | undefined> => {
+    const res = await runner(sessionForArgv(resolved))
+    if (res.code !== 0) return undefined
+    const session = res.stdout.trim()
+    return session.length > 0 ? session : undefined
   }
 
   return ctx.tool.transform((editor) => {
@@ -181,6 +191,8 @@ export async function registerTools(
         const resolved = target(args.target)
         if (!resolved) return { content: NO_TARGET }
         if (!(await confirmed(resolved))) return { content: staleTarget(resolved) }
+        const session = await sessionOf(resolved)
+        if (!session) return { content: staleTarget(resolved) }
         if (args.command) {
           await ctx.permission.assert({
             sessionID: context.sessionID,
@@ -191,7 +203,7 @@ export async function registerTools(
             save: [args.command],
           })
         }
-        const argv = newWindowArgv(resolved, { name: args.name, command: args.command, shell })
+        const argv = newWindowArgv(session, { name: args.name, command: args.command, shell })
         const res = await runner(argv)
         if (res.code !== 0) return failure(argv, res.message)
         const id = res.stdout.trim()

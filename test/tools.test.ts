@@ -55,8 +55,10 @@ const TEST_CONTEXT = { sessionID: "ses_test", agent: "build", messageID: "msg_x"
 const ok = (stdout: string): RunResult => ({ stdout, stderr: "", code: 0, message: "" })
 const bad = (message: string): RunResult => ({ stdout: "", stderr: message, code: 1, message })
 
-// The stale-anchor probe is the display-message that asks for #{pane_id}.
+// The stale-anchor probe is the display-message that asks for #{pane_id}; the
+// session probe asks for #{session_id}.
 const isProbe = (argv: string[]) => argv[0] === "display-message" && argv[argv.length - 1] === "#{pane_id}"
+const isSessionProbe = (argv: string[]) => argv[0] === "display-message" && argv[argv.length - 1] === "#{session_id}:"
 
 function tmuxRunner(respond: (argv: string[]) => RunResult): { runner: Runner; calls: string[][] } {
   const calls: string[][] = []
@@ -67,8 +69,10 @@ function tmuxRunner(respond: (argv: string[]) => RunResult): { runner: Runner; c
   return { runner, calls }
 }
 
-// Default responder: the anchor exists, every other command succeeds.
-const anchorExists = (stdout = "%9\n") => (argv: string[]) => (isProbe(argv) ? ok("%6\n") : ok(stdout))
+// Default responder: the anchor exists, its session resolves, every other
+// command succeeds.
+const anchorExists = (stdout = "%9\n") => (argv: string[]) =>
+  isProbe(argv) ? ok("%6\n") : isSessionProbe(argv) ? ok("$3:\n") : ok(stdout)
 
 const NAMES = ["tmux_context", "tmux_name", "tmux_new_pane", "tmux_new_window", "tmux_send", "tmux_capture"]
 
@@ -118,8 +122,9 @@ describe("registerTools", () => {
 
     const result = await tools.get("tmux_send")!.execute({ text: "ls" }, TEST_CONTEXT)
     expect(result.content).toContain("sent")
-    expect(calls[1]).toEqual(["send-keys", "-t", "%6", "-l", "--", "ls"])
-    expect(calls[2]).toEqual(["send-keys", "-t", "%6", "Enter"])
+    const sends = calls.filter((argv) => argv[0] === "send-keys")
+    expect(sends[0]).toEqual(["send-keys", "-t", "%6", "-l", "--", "ls"])
+    expect(sends[1]).toEqual(["send-keys", "-t", "%6", "Enter"])
   })
 
   test("tmux_new_pane returns the new pane id and names it", async () => {
@@ -129,8 +134,17 @@ describe("registerTools", () => {
 
     const result = await tools.get("tmux_new_pane")!.execute({ name: "worker" }, TEST_CONTEXT)
     expect(result.content).toContain("%42")
-    expect(calls[1]).toEqual(["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", "%6", "-v"])
-    expect(calls[2]).toEqual(["select-pane", "-t", "%42", "-T", "worker"])
+    expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
+      "split-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-v",
+    ])
+    expect(calls.find((argv) => argv[0] === "select-pane")).toEqual(["select-pane", "-t", "%42", "-T", "worker"])
   })
 
   test("tmux_new_pane runs a command through the configured shell", async () => {
@@ -139,7 +153,7 @@ describe("registerTools", () => {
     await registerTools(ctx, runner, EMPTY_ENV)
 
     await tools.get("tmux_new_pane")!.execute({ command: "ls | wc -l" }, TEST_CONTEXT)
-    expect(calls[1]).toEqual([
+    expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
       "split-window",
       "-d",
       "-P",
@@ -154,24 +168,37 @@ describe("registerTools", () => {
     ])
   })
 
-  test("tmux_new_window defaults the command shell to sh and targets the agent session", async () => {
+  test("tmux_new_window resolves the session and runs the command through sh", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" })
     const { runner, calls } = tmuxRunner(anchorExists("@7\n"))
     await registerTools(ctx, runner, EMPTY_ENV)
 
     await tools.get("tmux_new_window")!.execute({ command: "echo hi" }, TEST_CONTEXT)
-    expect(calls[1]).toEqual([
+    expect(calls.find(isSessionProbe)).toEqual(["display-message", "-p", "-t", "%6", "-F", "#{session_id}:"])
+    expect(calls.find((argv) => argv[0] === "new-window")).toEqual([
       "new-window",
       "-d",
       "-P",
       "-F",
       "#{window_id}",
       "-t",
-      "%6",
+      "$3:",
       "sh",
       "-c",
       "echo hi",
     ])
+  })
+
+  test("tmux_new_window reports when the session cannot be resolved", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner((argv) =>
+      isProbe(argv) ? ok("%6\n") : isSessionProbe(argv) ? bad("no session") : ok("@7\n"),
+    )
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_new_window")!.execute({}, TEST_CONTEXT)
+    expect(result.content).toContain("does not exist")
+    expect(calls.some((argv) => argv[0] === "new-window")).toBe(false)
   })
 
   test("tmux_new_window reports a missing target instead of running tmux", async () => {
