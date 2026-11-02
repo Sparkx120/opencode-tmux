@@ -125,7 +125,8 @@ export interface CaptureOptions {
   escapes?: boolean
 }
 
-export function captureArgv(target: string, opts: CaptureOptions = {}): string[] {  const argv = ["capture-pane", "-p", "-t", target]
+export function captureArgv(target: string, opts: CaptureOptions = {}): string[] {
+  const argv = ["capture-pane", "-p", "-t", target]
   if (opts.start !== undefined) argv.push("-S", opts.start)
   if (opts.end !== undefined) argv.push("-E", opts.end)
   if (opts.escapes) argv.push("-e")
