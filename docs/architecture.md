@@ -66,12 +66,29 @@ anything else in the permission set.
 
 ## Command execution and output
 
-`tmux_exec` brackets its command with a per-call sentinel and slices the output between
-the markers, so the caller gets the command's output rather than the pane scrapings around
-it. Completion waits for the end sentinel rather than for the capture to stop changing:
-a fresh pane is momentarily stable between the key send and the command's first output, so
-stability is not evidence that the command finished. When the markers cannot be found, the
-raw capture comes back with a note instead of silently partial output.
+`tmux_exec` injects nothing into a pane. It creates its own pane with its shell, sets
+`remain-on-exit` on it, and runs the command as that pane's process with `respawn-pane -k`.
+Running the command directly, rather than typing it into an interactive shell, is what
+keeps the output clean: there is no echoed command line and no prompt to slice out. The
+pane keeps its shell until the respawn, so setting the option cannot race a fast command
+into a dead pane, and `remain-on-exit` keeps the pane alive after the command exits so its
+output stays readable until it is captured.
+
+Completion is the pane's own `#{pane_dead}` flag, which tmux sets when the command exits,
+bounded by the timeout. The exit status is read from `#{pane_dead_status}` the same way, so
+it is tmux's real status rather than a parsed one. The pane is captured with `-S -` for the
+whole scrollback and then closed. A command that outlives the timeout is left running, its
+pane is not closed, and the trailer names the pane for the caller to watch or kill.
+
+This supersedes an earlier design that typed a sentinel-bracketed command into an existing
+or created pane and sliced the output between the markers. It was fragile: the markers
+could scroll out of the pane's history, and an interactive shell echoed the command back
+and redrew a prompt around the output. Running the command as the pane process removes the
+scrape entirely.
+
+The dead-pane banner tmux draws is suppressed by setting `remain-on-exit-format` to empty.
+An older tmux that ignores the option has the single banner line stripped from the capture
+instead.
 
 ## Editor
 

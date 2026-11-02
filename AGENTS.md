@@ -28,9 +28,9 @@ Check `~/.local/share/opencode/log/opencode.log` for the load warning either way
 - `src/tmux.ts` — the pure argv builders and the runner. `run` shells out and never
   rejects, returning a `message` for a non-zero exit. Builders: `newArgv`, `killArgv`,
   `nameArgv`, `sendKeysArgv`, `captureArgv`, `targetExistsArgv`, `sessionForArgv`,
-  `windowForArgv`. Waiting: `settleCapture` for a pane read, `waitForExecOutput` for a
-  bracketed command. Sentinel helpers: `execMarker`, `bracketedCommand`,
-  `extractExecOutput`.
+  `windowForArgv`, `paneOptionArgv`, `respawnArgv`, `paneDeadArgv`, `paneDeadStatusArgv`.
+  Waiting: `settleCapture` for a pane read, `waitForPaneDead` for the exec pane. Output
+  helpers: `cleanExecCapture`, `execTrailer`, `execTimeoutTrailer`.
 - `src/anchor.ts` — per-session anchor resolution: `listPanesArgv`, `parsePaneRows`,
   `normalizePath`, `chooseAnchor`.
 - `src/editor.ts` — editor resolution and the pane command: `resolveEditor`,
@@ -60,16 +60,19 @@ editor-and-tool-merge feature.
   location directory against a pane's current path, because the `opencode serve` daemon
   is shared and its inherited `$TMUX_PANE` belongs to whichever pane launched it.
 - The anchor pane is protected. `tmux_kill` refuses the anchor pane and the window that
-  contains it, with no override. `tmux_send` and `tmux_exec` refuse the anchor pane, since
-  they would type into the agent's own TUI.
+  contains it, with no override. `tmux_send` refuses the anchor pane, since it would type
+  into the agent's own TUI. `tmux_exec` does not refuse it: it injects nothing into a pane,
+  and splits the anchor instead.
 - Everything that would run a command asserts OpenCode's `shell` permission action:
   `tmux_send` and `tmux_new` assert the raw command, `tmux_exec` asserts the raw command
   so per-command rules still govern, and `tmux_edit` asserts the namespaced resource
   `tmux_edit <path>` so one config rule covers it whatever `$EDITOR` resolves to.
-- `tmux_exec` brackets its command with a per-call sentinel and waits for the end sentinel
-  before slicing the output. Waiting for the capture to stop changing is a bug: a fresh
-  pane is momentarily stable before the command runs. When the sentinels cannot be found,
-  the raw capture comes back with a note instead of partial output.
+- `tmux_exec` injects nothing into a pane. It creates its own pane or window (with its
+  shell), sets `remain-on-exit` on the pane before `respawn-pane -k` runs the command as
+  that pane's process, polls `#{pane_dead}` bounded by `timeoutMs`, reads the output and
+  the real exit status from tmux, then closes what it created. The shell, the flag, and the
+  command are separate argv elements, so pipes, quotes, and globs reach the command intact.
+  A command that outlives the timeout is left running, and the trailer names its pane.
 - Every tool probes the resolved target for existence before acting, so a stale anchor
   fails with a clear message rather than a raw tmux error.
 - The NERDTree probe uses `-N`: plain `-es` starts vi-compatible and does not load
