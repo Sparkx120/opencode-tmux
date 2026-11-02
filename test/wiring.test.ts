@@ -34,5 +34,7 @@ describe("plugin entry", () => {
     expect(toolNames.has("tmux_context")).toBe(true)
     expect(toolNames.size).toBe(7)
     expect(skillIds.has("tmux")).toBe(true)
+    expect(skillIds.has("tmux-editor")).toBe(true)
+    expect(skillIds.size).toBe(2)
   })
 })

@@ -1,11 +1,11 @@
 # opencode-tmux
 
-An OpenCode V2 plugin that adds a small set of tmux tools and skills that document how to use them.
+An OpenCode V2 plugin that adds a small set of tmux tools and two skills that document how to use them.
 
 ## What it does
 
 - Registers lean tools to inspect a tmux session, name panes and windows, create and kill panes and windows, send text, and capture pane output.
-- Registers a `tmux` skill that teaches the model the session/window/pane model, target syntax, and the pitfalls of driving tmux from a non-tty process.
+- Registers a `tmux` skill that teaches the model the session/window/pane model, target syntax, and the pitfalls of driving tmux from a non-tty process, and a `tmux-editor` skill for opening the user's editor.
 
 The tools act on the pane the agent runs in by default. That anchor is resolved once per session, in this order: an explicit `target` on the call, then the `pane` option, then the pane whose current path matches the session's location directory, then `$TMUX_PANE`. The directory match exists because `opencode serve` is a long-lived daemon shared by every TUI, so the `$TMUX_PANE` it inherited belongs to whichever pane launched the daemon, not to the calling session. When the directory matches more than one pane, one running the opencode TUI wins; if that is still ambiguous, the resolver falls back to `$TMUX_PANE` rather than guessing. A resolved target that no longer exists is detected before the operation runs and reported, rather than failing with a raw tmux error. `tmux_context` labels the anchor line with how it was resolved.
 

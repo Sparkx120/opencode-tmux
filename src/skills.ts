@@ -1,6 +1,6 @@
-// Skill loader. The skill body lives in skills/tmux/SKILL.md; this module
-// reads it, parses the frontmatter, and registers it with the host. The pure
-// buildSkillRegistration split keeps the object shape testable without disk.
+// Skill loader. Each skill body lives in skills/<dir>/SKILL.md; this module
+// reads them, parses the frontmatter, and registers them with the host. The
+// pure buildSkillRegistration split keeps the object shape testable without disk.
 
 import { readFile } from "node:fs/promises"
 import { basename, dirname } from "node:path"
@@ -8,9 +8,16 @@ import { fileURLToPath } from "node:url"
 import { Skill, type Plugin } from "@opencode/plugin"
 import { parseFrontmatter } from "./frontmatter.js"
 
-// src/skills.ts -> repo root -> skills/tmux/SKILL.md
-export function skillFilePath(): string {
-  return fileURLToPath(new URL("../skills/tmux/SKILL.md", import.meta.url))
+// Every skill the plugin ships, by directory name under skills/.
+export const SKILL_DIRS = ["tmux", "tmux-editor"] as const
+
+// src/skills.ts -> repo root -> skills/<dir>/SKILL.md
+export function skillFilePath(dir: string): string {
+  return fileURLToPath(new URL(`../skills/${dir}/SKILL.md`, import.meta.url))
+}
+
+export function skillFilePaths(): string[] {
+  return SKILL_DIRS.map((dir) => skillFilePath(dir))
 }
 
 export function buildSkillRegistration(fileContents: string, absolutePath: string): Skill.Info {
@@ -28,10 +35,13 @@ export function buildSkillRegistration(fileContents: string, absolutePath: strin
 }
 
 export async function registerSkills(ctx: Plugin.Context) {
-  const path = skillFilePath()
-  const fileContents = await readFile(path, "utf8")
-  const skill = buildSkillRegistration(fileContents, path)
+  const skills = await Promise.all(
+    SKILL_DIRS.map(async (dir) => {
+      const path = skillFilePath(dir)
+      return buildSkillRegistration(await readFile(path, "utf8"), path)
+    }),
+  )
   return ctx.skill.transform((editor) => {
-    editor.add(skill)
+    for (const skill of skills) editor.add(skill)
   })
 }
