@@ -46,6 +46,9 @@ const REFUSE_ANCHOR_PANE =
   "refusing to kill the anchor pane: it is the agent's own pane, and there is no override. Pass a different target."
 const REFUSE_ANCHOR_WINDOW =
   "refusing to kill the window containing the anchor pane: it holds the agent's own pane, and there is no override. Pass a different target."
+// Typing into the anchor drives the agent's own TUI, so the same guard applies.
+const REFUSE_ANCHOR_INPUT =
+  "refusing to type into the anchor pane: it is the agent's own TUI, and there is no override. Pass the target of another pane."
 
 // The action name OpenCode's own shell tool uses (packages/core tool/plugin/shell.ts
 // sets `action: name` with `name = "shell"`), so the same permission rules apply.
@@ -165,6 +168,16 @@ export async function registerTools(
     if (res.code !== 0) return undefined
     const id = res.stdout.trim()
     return id.length > 0 ? id : undefined
+  }
+
+  // The anchor guard, shared by every tool that could kill or type into the
+  // agent's own pane. No anchor means nothing to protect.
+  const anchorPaneId = async (): Promise<string | undefined> => (anchor.target ? paneOf(anchor.target) : undefined)
+  const isAnchorPane = async (paneId: string): Promise<boolean> => (await anchorPaneId()) === paneId
+  const isAnchorWindow = async (windowId: string): Promise<boolean> => {
+    const anchorId = await anchorPaneId()
+    if (!anchorId) return false
+    return (await windowOf(anchorId)) === windowId
   }
 
   // new-window wants a target-window, and a pane is not one. Resolve the pane
@@ -364,15 +377,13 @@ export async function registerTools(
         if (!resolved) return { content: NO_TARGET }
         const paneId = await paneOf(resolved)
         if (!paneId) return { content: staleTarget(resolved) }
-        const anchorPane = anchor.target ? await paneOf(anchor.target) : undefined
 
         if (kind === "pane") {
-          if (anchorPane && paneId === anchorPane) return { content: REFUSE_ANCHOR_PANE }
+          if (await isAnchorPane(paneId)) return { content: REFUSE_ANCHOR_PANE }
         } else {
           const targetWindow = await windowOf(resolved)
           if (!targetWindow) return { content: staleTarget(resolved) }
-          const anchorWindow = anchorPane ? await windowOf(anchorPane) : undefined
-          if (anchorWindow && targetWindow === anchorWindow) return { content: REFUSE_ANCHOR_WINDOW }
+          if (await isAnchorWindow(targetWindow)) return { content: REFUSE_ANCHOR_WINDOW }
         }
 
         const argv = killArgv(kind, resolved)
@@ -385,11 +396,11 @@ export async function registerTools(
     editor.add({
       name: "tmux_send",
       description:
-        "Send text or a command to a pane. Load the `tmux` skill first. Input: text, optional target (defaults to the agent pane), literal (default true), enter (default true).",
+        "Send text or a command to a pane other than the agent's own. Load the `tmux` skill first. Input: text, target (required in practice: the agent pane is refused), optional literal (default true), enter (default true).",
       input: {
         type: "object",
         properties: {
-          target: { type: "string", description: "Pane target; defaults to the agent pane" },
+          target: { type: "string", description: "Pane target; must be another pane, the agent pane is refused" },
           text: { type: "string", description: "Text to send" },
           literal: { type: "boolean", description: "Send verbatim (default true); false treats the text as key names" },
           enter: { type: "boolean", description: "Press Enter after the text (default true)" },
@@ -402,7 +413,9 @@ export async function registerTools(
         const resolved = target(args.target)
         if (!resolved) return { content: NO_TARGET }
         if (typeof args.text !== "string") return { content: "tmux_send: text is required" }
-        if (!(await confirmed(resolved))) return { content: staleTarget(resolved) }
+        const paneId = await paneOf(resolved)
+        if (!paneId) return { content: staleTarget(resolved) }
+        if (await isAnchorPane(paneId)) return { content: REFUSE_ANCHOR_INPUT }
         const enter = args.enter !== false
         await ctx.permission.assert({
           sessionID: context.sessionID,

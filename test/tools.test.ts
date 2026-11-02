@@ -162,16 +162,29 @@ describe("registerTools", () => {
     expect(calls.length).toBe(0)
   })
 
-  test("target resolves from the plugin option when the arg is omitted", async () => {
+  test("tmux_send sends to an explicit target that is not the anchor", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" })
     const { runner, calls } = tmuxRunner(anchorExists())
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    const result = await tools.get("tmux_send")!.execute({ text: "ls" }, TEST_CONTEXT)
+    const result = await tools.get("tmux_send")!.execute({ text: "ls", target: "%4" }, TEST_CONTEXT)
     expect(result.content).toContain("sent")
     const sends = calls.filter((argv) => argv[0] === "send-keys")
-    expect(sends[0]).toEqual(["send-keys", "-t", "%6", "-l", "--", "ls"])
-    expect(sends[1]).toEqual(["send-keys", "-t", "%6", "Enter"])
+    expect(sends[0]).toEqual(["send-keys", "-t", "%4", "-l", "--", "ls"])
+    expect(sends[1]).toEqual(["send-keys", "-t", "%4", "Enter"])
+  })
+
+  test("tmux_send refuses the anchor pane, omitted or explicit", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner(anchorExists())
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const omitted = await tools.get("tmux_send")!.execute({ text: "ls" }, TEST_CONTEXT)
+    expect(omitted.content).toMatch(/refus/i)
+    expect(omitted.content).toContain("another pane")
+    const explicit = await tools.get("tmux_send")!.execute({ text: "ls", target: "%6" }, TEST_CONTEXT)
+    expect(explicit.content).toMatch(/refus/i)
+    expect(calls.some((argv) => argv[0] === "send-keys")).toBe(false)
   })
 
   test("tmux_new creates and names a detached pane", async () => {
@@ -397,10 +410,10 @@ describe("anchor heuristic", () => {
     const { runner, calls } = tmuxRunner(withPaneList())
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    const result = await tools.get("tmux_send")!.execute({ text: "ls" }, TEST_CONTEXT)
-    expect(result.content).toContain("sent")
-    const sends = calls.filter((argv) => argv[0] === "send-keys")
-    expect(sends[0]).toEqual(["send-keys", "-t", "%10", "-l", "--", "ls"])
+    // tmux_new proves the default target without the tmux_send anchor refusal.
+    const result = await tools.get("tmux_new")!.execute({ kind: "pane" }, TEST_CONTEXT)
+    expect(result.content).toContain("created pane")
+    expect(calls.find((argv) => argv[0] === "split-window")).toContain("%10")
   })
 
   test("tmux_context notes a directory-resolved anchor", async () => {
@@ -563,7 +576,7 @@ describe("permission gate", () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
     await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
 
-    await tools.get("tmux_send")!.execute({ text: "rm -rf /" }, TEST_CONTEXT)
+    await tools.get("tmux_send")!.execute({ text: "rm -rf /", target: "%4" }, TEST_CONTEXT)
 
     expect(assertCalls.length).toBe(1)
     const call = assertCalls[0]!
@@ -613,7 +626,9 @@ describe("permission gate", () => {
     })
     await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
 
-    await expect(tools.get("tmux_send")!.execute({ text: "x" }, TEST_CONTEXT)).rejects.toThrow("permission denied")
+    await expect(tools.get("tmux_send")!.execute({ text: "x", target: "%4" }, TEST_CONTEXT)).rejects.toThrow(
+      "permission denied",
+    )
   })
 
   test("a rejection stops the command from ever running", async () => {

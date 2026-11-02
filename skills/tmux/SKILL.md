@@ -60,11 +60,13 @@ Input: `kind` (`pane` or `window`), optional `target` (defaults to the agent pan
 
 Kills a pane or window. It refuses the agent's own pane, and refuses the window that contains it, with no override: killing either ends the session. A refusal is a plain message, not an error. The existence probe runs first, so a missing target gets the stale-target message. Use it to close a pane you created once it is no longer needed.
 
+The anchor guard is shared: `tmux_send` also refuses the agent pane, because typing into it drives the agent's own TUI. Pass a target of another pane.
+
 ### `tmux_send`
 
-Input: `text`, optional `target` (defaults to the agent pane), `literal` (default true), `enter` (default true).
+Input: `text`, `target` (required in practice), optional `literal` (default true), `enter` (default true).
 
-Sends `text` to a pane, then a separate Enter when `enter` is true. With `literal` true the text is sent verbatim, so `|`, `"`, and `;` stay literal instead of being read as key names. Set `literal` false only to send a key name such as `C-c`. To run a shell command, send the command as normal text: tmux sends it to the pane's shell, plus Enter. The text is written into the pane's existing shell, so `tmux_send` does not wrap it in a shell; this call still goes through the shell permission gate.
+Sends `text` to a pane, then a separate Enter when `enter` is true. The target must be a pane other than the agent's own: an omitted target resolves to the agent pane and is refused, so pass an explicit target. With `literal` true the text is sent verbatim, so `|`, `"`, and `;` stay literal instead of being read as key names. Set `literal` false only to send a key name such as `C-c`. To run a shell command, send the command as normal text: tmux sends it to the pane's shell, plus Enter. The text is written into the pane's existing shell, so `tmux_send` does not wrap it in a shell; this call still goes through the shell permission gate.
 
 ### `tmux_capture`
 
