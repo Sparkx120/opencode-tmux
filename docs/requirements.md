@@ -42,8 +42,8 @@ tmux capabilities through tools, and teaches their use through skills.
 - The editor is taken from `$EDITOR`. When that is unset, `vim` or `nano` is used if
   either is installed. When neither is, the user is told that no editor is known and
   nothing is opened.
-- The editor opens in a tmux pane to the right or the left of the OpenCode instance, right
-  by default.
+- The editor opens in a tmux pane to the right or the left of the OpenCode instance, or in a
+  window when that placement is asked for, right by default.
 - It opens a requested file, or an entire folder when that is asked for. With NERDTree
   installed, a folder opens with NERDTree active on it.
 - Focus moves to the editor by default, with an option to open it without taking focus for
