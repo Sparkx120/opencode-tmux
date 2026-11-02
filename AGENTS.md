@@ -48,26 +48,26 @@ is not attached to the service.
 
 ## Source map
 
-- `index.ts` — plugin entry at the repo root: `Plugin.define({ id: "tmux", setup })`,
+- `index.ts`: plugin entry at the repo root, `Plugin.define({ id: "tmux", setup })`,
   registering the tools and then the skills.
-- `src/tmux.ts` — the pure argv builders and the runner. `run` shells out and never
+- `src/tmux.ts`: the pure argv builders and the runner. `run` shells out and never
   rejects, returning a `message` for a non-zero exit. Builders: `newArgv`, `killArgv`,
   `nameArgv`, `nameDisableArgv`, `nameSequence`, `sendKeysArgv`, `captureArgv`,
   `targetExistsArgv`, `sessionForArgv`, `windowForArgv`, `paneOptionArgv`,
   `windowOptionArgv`, `respawnArgv`, `paneDeadArgv`, `paneDeadStatusArgv`.
   Waiting: `settleCapture` for a pane read, `waitForPaneDead` for the exec pane. Output
   helpers: `cleanExecCapture`, `execTrailer`, `execTimeoutTrailer`.
-- `src/anchor.ts` — per-session anchor resolution: `listPanesArgv`, `parsePaneRows`,
+- `src/anchor.ts`: per-session anchor resolution, `listPanesArgv`, `parsePaneRows`,
   `normalizePath`, `chooseAnchor`.
-- `src/editor.ts` — editor resolution and the pane command: `resolveEditor`,
+- `src/editor.ts`: editor resolution and the pane command, `resolveEditor`,
   `isVimFamily`, `isNano`, `NERD_TREE_PROBE_ARGS`, `probeNerdTree`, `shellQuote`,
   `editorInvocation`.
-- `src/frontmatter.ts` — dependency-free frontmatter parser for `SKILL.md`.
-- `src/skills.ts` — `SKILL_DIRS` and registration of every skill directory.
-- `src/tools.ts` — the tool surface, the anchor guards, and the permission asserts. Every
+- `src/frontmatter.ts`: dependency-free frontmatter parser for `SKILL.md`.
+- `src/skills.ts`: `SKILL_DIRS` and registration of every skill directory.
+- `src/tools.ts`: the tool surface, the anchor guards, and the permission asserts. Every
   `execute` returns `{ content }` text and never throws.
-- `skills/tmux/SKILL.md`, `skills/tmux-editor/SKILL.md` — the skill bodies.
-- `test/` — the `bun test` suite. The builders and pure helpers are driven with plain
+- `skills/tmux/SKILL.md`, `skills/tmux-editor/SKILL.md`: the skill bodies.
+- `test/`: the `bun test` suite. The builders and pure helpers are driven with plain
   values; the host seams (tools, skills, wiring) run over fake `ctx` objects; the
   integration file drives a real tmux and is opt-in.
 
@@ -112,10 +112,10 @@ editor-and-tool-merge feature.
 
 ## Run and test
 
-- `bun install` — dependencies (`@opencode/plugin` for types and runtime).
-- `bun test` — the unit suite. No host and no tmux needed.
-- `bun run typecheck` — `tsc --noEmit`.
-- `OPENCODE_TMUX_TEST=1 bun test test/integration.test.ts` — the opt-in live suite, which
+- `bun install`: dependencies (`@opencode/plugin` for types and runtime).
+- `bun test`: the unit suite. No host and no tmux needed.
+- `bun run typecheck`: `tsc --noEmit`.
+- `OPENCODE_TMUX_TEST=1 bun test test/integration.test.ts`: the opt-in live suite, which
   drives a real tmux. It skips unless that variable is set.
 
 Run the unit suite and the typecheck before claiming a change is done, and run the live
