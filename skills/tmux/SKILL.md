@@ -19,9 +19,9 @@ Prefer ids. Coordinates are fine for a target you just read from `tmux_context`,
 
 ## The agent's pane
 
-`$TMUX_PANE` is the pane the agent's own tmux client belongs to. It is the anchor: when a tool has no `target`, it falls back to the plugin `pane` option and then to `$TMUX_PANE`. The process running the agent is not a tmux client, so process ancestry tells you nothing; `$TMUX_PANE` is what does.
+`$TMUX_PANE` is the value inherited from whatever launched the `opencode serve` daemon. The agent owns no tmux client, so this value can be stale: it may name a pane that no longer exists, or a pane from a different session. When a tool has no `target`, it falls back to the plugin `pane` option and then to `$TMUX_PANE`. Tools verify the resolved target before acting; a target that no longer exists is reported rather than used, with a suggestion to pass a target or set the `pane` option. Call `tmux_context` to see which pane a tool will act on: it prints the agent pane first, then every pane in every session, and it skips the agent line when the anchor is unavailable.
 
-The plugin `pane` option overrides that fallback. When it is set, an omitted target resolves to the option instead of `$TMUX_PANE`. Call `tmux_context` to see which pane a tool will act on: it prints the agent pane first, then every pane in every session.
+The plugin `pane` option overrides that fallback. When it is set, an omitted target resolves to the option instead of `$TMUX_PANE`. Use it when `$TMUX_PANE` is wrong or stale.
 
 ## Tools
 
@@ -39,19 +39,19 @@ Names a pane (sets its title) or a window. Name the panes and windows you create
 
 Input: optional `target`, `name`, `command`, `vertical`.
 
-Splits a pane and returns the new pane id. `vertical` defaults to true, which splits below; false splits to the side. The new pane is created detached, so it does not steal focus. Pass `command` to run something in it, and `name` to title it. The tool splits the target pane, so give a pane id, not a window.
+Splits a pane and returns the new pane id. `vertical` defaults to true, which splits below; false splits to the side. The new pane is created detached, so it does not steal focus. Pass `command` to run something in it, and `name` to title it. The tool splits the target pane, so give a pane id, not a window. `command` runs as `<shell> -c <command>`, where `shell` is the plugin option (default `sh`), so pipes, redirects, `&&`, and globs work. A call that carries a `command` goes through the shell permission gate first.
 
 ### `tmux_new_window`
 
-Input: optional `name`, `command`.
+Input: optional `target`, `name`, `command`.
 
-Creates a detached window and returns its window id. Use it for long-running work that deserves its own window rather than a split.
+Creates a detached window in the agent's session and returns its window id. The window lands in the session of the resolved target, so it appears next to the agent's own window instead of in an undefined "current" session. `command` runs as `<shell> -c <command>` (the plugin `shell` option, default `sh`). A call that carries a `command` goes through the shell permission gate first. Use it for long-running work that deserves its own window rather than a split.
 
 ### `tmux_send`
 
-Input: `target`, `text`, optional `literal` (default true), `enter` (default true).
+Input: `text`, optional `target` (defaults to the agent pane), `literal` (default true), `enter` (default true).
 
-Sends `text` to a pane, then a separate Enter when `enter` is true. With `literal` true the text is sent verbatim, so `|`, `"`, and `;` stay literal instead of being read as key names. Set `literal` false only to send a key name such as `C-c`. To run a shell command, send the command as normal text: tmux sends it to the pane's shell, plus Enter.
+Sends `text` to a pane, then a separate Enter when `enter` is true. With `literal` true the text is sent verbatim, so `|`, `"`, and `;` stay literal instead of being read as key names. Set `literal` false only to send a key name such as `C-c`. To run a shell command, send the command as normal text: tmux sends it to the pane's shell, plus Enter. The text is written into the pane's existing shell, so `tmux_send` does not wrap it in a shell; this call still goes through the shell permission gate.
 
 ### `tmux_capture`
 
@@ -67,4 +67,5 @@ Reads a pane's visible contents. It polls until two consecutive reads match, bec
 - Bound `-S` ranges to the pane's scrollback. A range deeper than the pane's history returns almost nothing.
 - `split-window -d -P -F '#{pane_id}'` returns the new pane id without changing focus. Use the returned id; do not guess it.
 - Clean up with `kill-pane -t <id>` and `kill-session -t <name>`. Kill by id or name, never by index.
+- `$TMUX_PANE` is inherited and can be stale. Tools verify the resolved target before acting; if a target is reported missing, pass a target from `tmux_context` or set the plugin `pane` option.
 - The agent's shell is not a tmux client: `$TMUX` and `$TMUX_PANE` are the only anchors, and the plugin `pane` option can override the latter.
