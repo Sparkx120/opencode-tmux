@@ -4,6 +4,7 @@
 // comes back as a message field the caller returns to the model as text.
 
 import { execFile } from "node:child_process"
+import { randomUUID } from "node:crypto"
 
 // Fields the skill documents: the session:window.pane address, the pane and
 // window ids, the pane title and the running command.
@@ -160,6 +161,64 @@ export function sendKeysArgv(target: string, text: string, opts: SendOptions = {
 // target is gone (e.g. a stale $TMUX_PANE inherited by the daemon).
 export function targetExistsArgv(target: string): string[] {
   return ["display-message", "-p", "-t", target, "-F", "#{pane_id}"]
+}
+
+// Per-call unique, shell-safe sentinel stem for tmux_exec. Alphanumerics only,
+// so it needs no quoting and cannot collide with the pane's older content.
+export function execMarker(): string {
+  return `OCE${randomUUID().replace(/-/g, "").slice(0, 12)}`
+}
+
+// One line that brackets the command with a begin marker and an end marker
+// carrying the exit status, so the output can be sliced out of the capture.
+export function bracketedCommand(command: string, marker: string): string {
+  return `echo ${marker}-B; ${command}; echo "${marker}-E:$?"`
+}
+
+export interface ExecExtract {
+  /** The command's output, or the raw capture when the markers were not found. */
+  text: string
+  /** Exit status from the end marker; undefined when absent or unparseable. */
+  exit?: number
+  /** false when the markers were missing and the text is the raw capture. */
+  bounded: boolean
+}
+
+function trimBlankLines(lines: string[]): string[] {
+  let start = 0
+  let end = lines.length
+  while (start < end && lines[start]!.trim() === "") start++
+  while (end > start && lines[end - 1]!.trim() === "") end--
+  return lines.slice(start, end)
+}
+
+// Slice the output from the last begin marker to the first end marker after it,
+// so a pane holding earlier runs still resolves to the current one. When either
+// marker is missing, the caller gets the raw capture plus bounded: false, so it
+// can report the boundary failure instead of silently returning partial output.
+export function extractExecOutput(capture: string, marker: string): ExecExtract {
+  const lines = capture.split("\n")
+  const beginMarker = `${marker}-B`
+  const endMarker = `${marker}-E:`
+
+  let begin = -1
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i]!.includes(beginMarker)) {
+      begin = i
+      break
+    }
+  }
+  if (begin < 0) return { text: capture.replace(/\s+$/, ""), bounded: false }
+
+  for (let i = begin + 1; i < lines.length; i++) {
+    const at = lines[i]!.indexOf(endMarker)
+    if (at < 0) continue
+    const code = Number.parseInt(lines[i]!.slice(at + endMarker.length).trim(), 10)
+    const exit = Number.isNaN(code) ? undefined : code
+    return { text: trimBlankLines(lines.slice(begin + 1, i)).join("\n"), exit, bounded: true }
+  }
+
+  return { text: capture.replace(/\s+$/, ""), bounded: false }
 }
 
 export function sessionForArgv(target: string): string[] {

@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import {
+  bracketedCommand,
   captureArgv,
   CONTEXT_FORMAT,
   contextArgv,
+  execMarker,
+  extractExecOutput,
   killArgv,
   nameArgv,
   newArgv,
@@ -298,6 +301,65 @@ describe("captureArgv", () => {
       "-1",
       "-e",
     ])
+  })
+})
+
+describe("execMarker", () => {
+  test("is a unique, shell-safe token", () => {
+    const a = execMarker()
+    const b = execMarker()
+    expect(a).not.toBe(b)
+    expect(a).toMatch(/^[A-Za-z0-9_]+$/)
+  })
+})
+
+describe("bracketedCommand", () => {
+  test("wraps the command between a begin and an exit-code sentinel on one line", () => {
+    expect(bracketedCommand("echo hi", "M")).toBe('echo M-B; echo hi; echo "M-E:$?"')
+  })
+})
+
+describe("extractExecOutput", () => {
+  const cap = (lines: string[]) => lines.join("\n")
+
+  test("returns the lines between the last begin and its end marker", () => {
+    const capture = cap([
+      'echo M-B; ls; echo "M-E:$?"',
+      "M-B",
+      "file-a",
+      "file-b",
+      "M-E:0",
+      "┌─[user@host]─[/home]",
+      "└─ ls",
+    ])
+    expect(extractExecOutput(capture, "M")).toEqual({ text: "file-a\nfile-b", exit: 0, bounded: true })
+  })
+
+  test("uses the last begin marker when old content holds an earlier one", () => {
+    const capture = cap(["M-B", "stale output", "M-E:0", 'echo M-B; x; echo "M-E:$?"', "M-B", "fresh", "M-E:2"])
+    expect(extractExecOutput(capture, "M")).toEqual({ text: "fresh", exit: 2, bounded: true })
+  })
+
+  test("trims surrounding blank lines", () => {
+    const capture = cap(["M-B", "", "out", "", "M-E:0"])
+    expect(extractExecOutput(capture, "M")).toEqual({ text: "out", exit: 0, bounded: true })
+  })
+
+  test("empty output yields an empty body", () => {
+    expect(extractExecOutput(cap(["M-B", "M-E:0"]), "M")).toEqual({ text: "", exit: 0, bounded: true })
+  })
+
+  test("falls back to the raw capture when the markers are missing", () => {
+    const out = extractExecOutput(cap(["some", "raw", "output"]), "M")
+    expect(out).toEqual({ text: "some\nraw\noutput", exit: undefined, bounded: false })
+  })
+
+  test("reports an unknown exit when the end marker has no number", () => {
+    expect(extractExecOutput(cap(["M-B", "out", "M-E:?"]), "M")).toEqual({
+      text: "out",
+      exit: undefined,
+      bounded: true,
+    })
   })
 })
 

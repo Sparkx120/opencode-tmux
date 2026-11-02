@@ -581,23 +581,121 @@ describe("tmux_edit", () => {
 })
 
 describe("tmux_exec", () => {
-  test("runs in an existing pane and returns the output", async () => {
+  const MARKER = "M"
+  const execDeps = { ...DEPS, marker: () => MARKER }
+  // A settled capture as tmux would render it: the echoed command line, the
+  // begin marker's own line, the output, the end marker, then the prompt.
+  const captureWith = (command: string, output: string[], exit: number) =>
+    [`echo ${MARKER}-B; ${command}; echo "${MARKER}-E:$?"`, `${MARKER}-B`, ...output, `${MARKER}-E:${exit}`, "└─ $"].join(
+      "\n",
+    )
+
+  test("returns only the command output plus the exit trailer", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
     const { runner, calls } = tmuxRunner((argv) =>
-      isProbe(argv) ? ok(`${targetOf(argv)}\n`) : argv[0] === "capture-pane" ? ok("hello\n") : ok(""),
+      isProbe(argv)
+        ? ok(`${targetOf(argv)}\n`)
+        : argv[0] === "capture-pane"
+          ? ok(captureWith("echo hello", ["hello", "world"], 0))
+          : ok(""),
     )
-    await registerTools(ctx, runner, EMPTY_ENV)
+    await registerTools(ctx, runner, EMPTY_ENV, execDeps)
 
     const result = await tools.get("tmux_exec")!.execute({ command: "echo hello", target: "%4" }, TEST_CONTEXT)
-    expect(result.content).toBe("hello")
+    expect(result.content).toBe("hello\nworld")
     expect(assertCalls.length).toBe(1)
     expect(assertCalls[0]!.action).toBe("shell")
     expect(assertCalls[0]!.resources).toEqual(["echo hello"])
     expect(assertCalls[0]!.save).toEqual(["echo hello"])
     const sends = calls.filter((argv) => argv[0] === "send-keys")
-    expect(sends[0]).toEqual(["send-keys", "-t", "%4", "-l", "--", "echo hello"])
+    expect(sends[0]).toEqual(["send-keys", "-t", "%4", "-l", "--", 'echo M-B; echo hello; echo "M-E:$?"'])
     expect(sends[1]).toEqual(["send-keys", "-t", "%4", "Enter"])
-    expect(calls.find((argv) => argv[0] === "capture-pane")).toEqual(["capture-pane", "-p", "-t", "%4"])
+    // The whole scrollback is captured, not just the visible pane.
+    expect(calls.find((argv) => argv[0] === "capture-pane")).toEqual(["capture-pane", "-p", "-t", "%4", "-S", "-"])
+  })
+
+  test("surfaces a non-zero exit status", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner } = tmuxRunner((argv) =>
+      isProbe(argv) ? ok(`${targetOf(argv)}\n`) : argv[0] === "capture-pane" ? ok(captureWith("boom", ["boom"], 2)) : ok(""),
+    )
+    await registerTools(ctx, runner, EMPTY_ENV, execDeps)
+
+    const result = await tools.get("tmux_exec")!.execute({ command: "boom", target: "%4" }, TEST_CONTEXT)
+    expect(result.content).toBe("boom")
+  })
+
+  test("falls back to the raw capture with a note when the markers are missing", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner } = tmuxRunner((argv) =>
+      isProbe(argv) ? ok(`${targetOf(argv)}\n`) : argv[0] === "capture-pane" ? ok("random\nraw\nlines\n") : ok(""),
+    )
+    await registerTools(ctx, runner, EMPTY_ENV, execDeps)
+
+    const result = await tools.get("tmux_exec")!.execute({ command: "ls", target: "%4" }, TEST_CONTEXT)
+    expect(result.content).toContain("random\nraw\nlines")
+    expect(result.content).toContain("could not locate the output boundaries")
+  })
+
+  test("creates a pane and reports it in the trailer", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner((argv) =>
+      isProbe(argv)
+        ? ok("%6\n")
+        : argv[0] === "split-window"
+          ? ok("%42\n")
+          : argv[0] === "capture-pane"
+            ? ok(captureWith("echo hi", ["out"], 0))
+            : ok(""),
+    )
+    await registerTools(ctx, runner, EMPTY_ENV, execDeps)
+
+    const result = await tools.get("tmux_exec")!.execute({ command: "echo hi", new: "pane" }, TEST_CONTEXT)
+    expect(result.content).toBe("out")
+    expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
+      "split-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-v",
+    ])
+    const sends = calls.filter((argv) => argv[0] === "send-keys")
+    expect(sends[0]).toEqual(["send-keys", "-t", "%42", "-l", "--", 'echo M-B; echo hi; echo "M-E:$?"'])
+    expect(calls.find((argv) => argv[0] === "capture-pane")).toEqual(["capture-pane", "-p", "-t", "%42", "-S", "-"])
+  })
+
+  test("creates a window and reports it in the trailer", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner((argv) =>
+      isProbe(argv)
+        ? ok("%6\n")
+        : isSessionProbe(argv)
+          ? ok("$3:\n")
+          : argv[0] === "new-window"
+            ? ok("@7\n")
+            : argv[0] === "capture-pane"
+              ? ok(captureWith("echo hi", ["winout"], 0))
+              : ok(""),
+    )
+    await registerTools(ctx, runner, EMPTY_ENV, execDeps)
+
+    const result = await tools.get("tmux_exec")!.execute({ command: "echo hi", new: "window" }, TEST_CONTEXT)
+    expect(result.content).toBe("winout")
+    expect(calls.find((argv) => argv[0] === "new-window")).toEqual([
+      "new-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{window_id}",
+      "-t",
+      "$3:",
+      "-a",
+    ])
+    const sends = calls.filter((argv) => argv[0] === "send-keys")
+    expect(sends[0]).toEqual(["send-keys", "-t", "@7", "-l", "--", 'echo M-B; echo hi; echo "M-E:$?"'])
   })
 
   test("refuses the anchor pane, omitted or explicit", async () => {
@@ -613,7 +711,7 @@ describe("tmux_exec", () => {
     expect(calls.some((argv) => argv[0] === "send-keys")).toBe(false)
   })
 
-  test("creates a pane and runs there", async () => {
+  test("honours focus and place for a new pane", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" })
     const { runner, calls } = tmuxRunner((argv) =>
       isProbe(argv)
@@ -621,70 +719,12 @@ describe("tmux_exec", () => {
         : argv[0] === "split-window"
           ? ok("%42\n")
           : argv[0] === "capture-pane"
-            ? ok("out\n")
+            ? ok(captureWith("ls", ["out"], 0))
             : ok(""),
     )
-    await registerTools(ctx, runner, EMPTY_ENV)
+    await registerTools(ctx, runner, EMPTY_ENV, execDeps)
 
-    const result = await tools.get("tmux_exec")!.execute({ command: "echo hi", new: "pane" }, TEST_CONTEXT)
-    expect(result.content).toBe("out")
-    expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
-      "split-window",
-      "-d",
-      "-P",
-      "-F",
-      "#{pane_id}",
-      "-t",
-      "%6",
-      "-v",
-    ])
-    const sends = calls.filter((argv) => argv[0] === "send-keys")
-    expect(sends[0]).toEqual(["send-keys", "-t", "%42", "-l", "--", "echo hi"])
-    expect(calls.find((argv) => argv[0] === "capture-pane")).toEqual(["capture-pane", "-p", "-t", "%42"])
-  })
-
-  test("creates a window and runs there", async () => {
-    const { ctx, tools } = fakeCtx({ pane: "%6" })
-    const { runner, calls } = tmuxRunner((argv) =>
-      isProbe(argv)
-        ? ok("%6\n")
-        : isSessionProbe(argv)
-          ? ok("$3:\n")
-          : argv[0] === "new-window"
-            ? ok("@7\n")
-            : argv[0] === "capture-pane"
-              ? ok("winout\n")
-              : ok(""),
-    )
-    await registerTools(ctx, runner, EMPTY_ENV)
-
-    const result = await tools.get("tmux_exec")!.execute({ command: "echo hi", new: "window" }, TEST_CONTEXT)
-    expect(result.content).toBe("winout")
-    expect(calls.find((argv) => argv[0] === "new-window")).toEqual([
-      "new-window",
-      "-d",
-      "-P",
-      "-F",
-      "#{window_id}",
-      "-t",
-      "$3:",
-      "-a",
-    ])
-    const sends = calls.filter((argv) => argv[0] === "send-keys")
-    expect(sends[0]).toEqual(["send-keys", "-t", "@7", "-l", "--", "echo hi"])
-  })
-
-  test("honours focus and place for a new pane", async () => {
-    const { ctx, tools } = fakeCtx({ pane: "%6" })
-    const { runner, calls } = tmuxRunner((argv) =>
-      isProbe(argv) ? ok("%6\n") : argv[0] === "split-window" ? ok("%42\n") : ok("out\n"),
-    )
-    await registerTools(ctx, runner, EMPTY_ENV)
-
-    await tools.get("tmux_exec")!.execute(
-      { command: "ls", new: "pane", place: "right", focus: true },
-      TEST_CONTEXT,
-    )
+    await tools.get("tmux_exec")!.execute({ command: "ls", new: "pane", place: "right", focus: true }, TEST_CONTEXT)
     expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
       "split-window",
       "-P",

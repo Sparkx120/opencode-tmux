@@ -44,7 +44,7 @@ A denial rejects the tool call with the reason.
 - `tmux_kill` — kill a pane or window, refusing the agent's own pane and its window.
 - `tmux_send` — send text or a command to a pane.
 - `tmux_capture` — read a pane's contents, waiting for it to settle.
-- `tmux_exec` — run a shell command in a pane and return its output.
+- `tmux_exec` — run a shell command in a pane and return only its output.
 - `tmux_edit` — open the editor on a file or folder, on explicit request only.
 
 Every tool defaults its target to the agent pane unless it is given one. Every tool description tells the model to load the `tmux` skill first. The skill carries the addressing model, the argument reference for each tool, and the known pitfalls.

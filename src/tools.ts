@@ -17,9 +17,12 @@ import {
   type ResolvedEditor,
 } from "./editor.js"
 import {
+  bracketedCommand,
   captureArgv,
   contextArgv,
   DEFAULT_SHELL,
+  execMarker,
+  extractExecOutput,
   killArgv,
   nameArgv,
   newArgv,
@@ -100,12 +103,15 @@ function editorOption(ctx: Plugin.Context): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined
 }
 
-// Injectable edges for `tmux_edit`: the NERDTree probe and the directory check.
+// Injectable edges for `tmux_edit` and `tmux_exec`: the NERDTree probe, the
+// directory check, and the per-call exec sentinel.
 export interface ToolDeps {
   /** Runs a binary; defaults to a real exec. Used for the NERDTree probe. */
   exec?: EditorExec
   /** Whether a path is a directory; defaults to fs.statSync. */
   isDirectory?: (path: string) => boolean
+  /** Unique sentinel stem for tmux_exec; defaults to execMarker. */
+  marker?: () => string
 }
 
 function statIsDirectory(path: string): boolean {
@@ -145,6 +151,7 @@ export async function registerTools(
       ? (await exec(resolvedEditor.command, NERD_TREE_PROBE_ARGS)) === 0
       : false
   const isDirectory = deps.isDirectory ?? statIsDirectory
+  const marker = deps.marker ?? execMarker
 
   // Resolve the anchor once: the session's location directory identifies its
   // pane, so a shared daemon's stale $TMUX_PANE does not win. A pinned pane
@@ -438,7 +445,7 @@ export async function registerTools(
     editor.add({
       name: "tmux_exec",
       description:
-        "Run a shell command in a tmux pane and return its output. Load the `tmux` skill first. Input: command, optional new (pane|window), target, place, focus, timeoutMs. Refuses the agent's own pane.",
+        "Run a shell command in a tmux pane and return only its output. Load the `tmux` skill first. Input: command, optional new (pane|window), target, place, focus, timeoutMs. Refuses the agent's own pane.",
       input: {
         type: "object",
         properties: {
@@ -516,9 +523,9 @@ export async function registerTools(
           save: [args.command],
         })
 
-        // Create detached, then type the command into the new pane/window's own
-        // shell. Running the command as the pane process would destroy the pane
-        // before its output could be read.
+        // Create detached, then type the bracketed command into the new pane or
+        // window's own shell. Running the command as the pane process would
+        // destroy the pane before its output could be read.
         if (createArgv) {
           const res = await runner(createArgv)
           if (res.code !== 0) return failure(createArgv, res.message)
@@ -526,12 +533,16 @@ export async function registerTools(
           if (!runTarget) return { content: "tmux_exec: the new pane or window did not report an id" }
         }
 
-        for (const argv of sendKeysArgv(runTarget, args.command, {})) {
+        const sentinel = marker()
+        const line = bracketedCommand(args.command, sentinel)
+        for (const argv of sendKeysArgv(runTarget, line, {})) {
           const res = await runner(argv)
           if (res.code !== 0) return failure(argv, res.message)
         }
 
-        const capture = captureArgv(runTarget, {})
+        // Capture the whole scrollback (`-S -`), not just the visible pane, so a
+        // long output does not scroll the begin marker out of the region.
+        const capture = captureArgv(runTarget, { start: "-" })
         const timeoutMs = typeof args.timeoutMs === "number" ? args.timeoutMs : undefined
         const captured = await settleCapture(
           async () => {
@@ -540,8 +551,16 @@ export async function registerTools(
           },
           { timeoutMs },
         )
-        const text = captured.replace(/\s+$/, "")
-        return { content: text.length > 0 ? text : "(no output)" }
+
+        const extracted = extractExecOutput(captured, sentinel)
+        if (!extracted.bounded) {
+          // The markers were not both present (e.g. the begin marker scrolled
+          // past the history limit): return the raw capture and say so.
+          return {
+            content: `${extracted.text}\n(tmux_exec: could not locate the output boundaries; returning the raw capture)`,
+          }
+        }
+        return { content: extracted.text.length > 0 ? extracted.text : "(no output)" }
       },
     })
 
