@@ -40,3 +40,16 @@ The tools that run a command in a shell — `tmux_send`, and `tmux_new_pane` / `
 - `tmux_capture` — read a pane's contents, waiting for it to settle.
 
 Every tool defaults its target to the agent pane unless it is given one. Every tool description tells the model to load the `tmux` skill first. The skill carries the addressing model, the argument reference for each tool, and the known pitfalls.
+
+## AI Disclosure
+
+Rough split per phase, human on the left of the bar and AI on the right:
+
+| Work type | Human / AI |
+| --- | --- |
+| Architecture | 75%  ███████│░░░  25% |
+| Requirements | 90%  █████████│░  10% |
+| Implementation (human oversight) | 0%  │░░░░░░░░░░  100% |
+| Testing | 0%  │░░░░░░░░░░  100% |
+| Review | 50%  █████│░░░░░  50% |
+| Documentation | 10%  █│░░░░░░░░░  90% |
