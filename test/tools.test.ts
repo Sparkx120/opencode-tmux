@@ -212,6 +212,13 @@ describe("registerTools", () => {
       "-v",
     ])
     expect(calls.find((argv) => argv[0] === "select-pane")).toEqual(["select-pane", "-t", "%42", "-T", "worker"])
+    // The program's own title is turned off before the name is set, so a prompt
+    // redraw does not overwrite it.
+    const disable = calls.findIndex((argv) => argv[0] === "set-option")
+    const rename = calls.findIndex((argv) => argv[0] === "select-pane")
+    expect(calls[disable]).toEqual(["set-option", "-p", "-t", "%42", "allow-set-title", "off"])
+    expect(disable).toBeGreaterThanOrEqual(0)
+    expect(disable).toBeLessThan(rename)
   })
 
   test("tmux_new maps pane place and size", async () => {
@@ -289,9 +296,56 @@ describe("registerTools", () => {
       "-t",
       "$3:",
       "-a",
-      "-n",
-      "logs",
     ])
+    // The window's own rename is turned off before the name is set.
+    const disable = calls.findIndex((argv) => argv[0] === "set-option")
+    const rename = calls.findIndex((argv) => argv[0] === "rename-window")
+    expect(calls[disable]).toEqual(["set-option", "-w", "-t", "@7", "allow-rename", "off"])
+    expect(calls[rename]).toEqual(["rename-window", "-t", "@7", "logs"])
+    expect(disable).toBeGreaterThanOrEqual(0)
+    expect(disable).toBeLessThan(rename)
+  })
+
+  test("tmux_name turns the program's title off before naming a pane", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%1" })
+    const { runner, calls } = tmuxRunner(anchorExists())
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_name")!.execute({ kind: "pane", name: "worker", target: "%4" }, TEST_CONTEXT)
+    expect(result.content).toContain("named pane %4 as worker")
+    expect(calls.find((argv) => argv[0] === "set-option")).toEqual([
+      "set-option",
+      "-p",
+      "-t",
+      "%4",
+      "allow-set-title",
+      "off",
+    ])
+    expect(calls.find((argv) => argv[0] === "select-pane")).toEqual(["select-pane", "-t", "%4", "-T", "worker"])
+    const disable = calls.findIndex((argv) => argv[0] === "set-option")
+    const rename = calls.findIndex((argv) => argv[0] === "select-pane")
+    expect(disable).toBeLessThan(rename)
+  })
+
+  test("tmux_name turns the program's rename off before naming a window", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%1" })
+    const { runner, calls } = tmuxRunner(anchorExists())
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_name")!.execute({ kind: "window", name: "logs", target: "@4" }, TEST_CONTEXT)
+    expect(result.content).toContain("named window @4 as logs")
+    expect(calls.find((argv) => argv[0] === "set-option")).toEqual([
+      "set-option",
+      "-w",
+      "-t",
+      "@4",
+      "allow-rename",
+      "off",
+    ])
+    expect(calls.find((argv) => argv[0] === "rename-window")).toEqual(["rename-window", "-t", "@4", "logs"])
+    const disable = calls.findIndex((argv) => argv[0] === "set-option")
+    const rename = calls.findIndex((argv) => argv[0] === "rename-window")
+    expect(disable).toBeLessThan(rename)
   })
 
   test("tmux_new rejects a window size", async () => {
@@ -516,12 +570,24 @@ describe("tmux_edit", () => {
       "-t",
       "$3:",
       "-a",
-      "-n",
-      "proj",
       "sh",
       "-c",
       "exec vim '/tmp/proj'",
     ])
+    // The editor sets the terminal title, so the window's own rename is turned
+    // off before it is named.
+    const disable = calls.findIndex((argv) => argv[0] === "set-option")
+    const rename = calls.findIndex((argv) => argv[0] === "rename-window")
+    expect(calls[disable]).toEqual([
+      "set-option",
+      "-w",
+      "-t",
+      "@7",
+      "allow-rename",
+      "off",
+    ])
+    expect(calls[rename]).toEqual(["rename-window", "-t", "@7", "proj"])
+    expect(disable).toBeLessThan(rename)
   })
 
   test("a directory uses NERDTree when the probe found it", async () => {

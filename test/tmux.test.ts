@@ -8,6 +8,8 @@ import {
   execTrailer,
   killArgv,
   nameArgv,
+  nameDisableArgv,
+  nameSequence,
   newArgv,
   paneDeadArgv,
   paneDeadStatusArgv,
@@ -19,6 +21,7 @@ import {
   targetExistsArgv,
   waitForPaneDead,
   windowForArgv,
+  windowOptionArgv,
 } from "../src/tmux.js"
 
 describe("contextArgv", () => {
@@ -47,6 +50,45 @@ describe("nameArgv", () => {
 
   test("names a window with rename-window", () => {
     expect(nameArgv("window", "@1", "logs")).toEqual(["rename-window", "-t", "@1", "logs"])
+  })
+})
+
+describe("nameDisableArgv", () => {
+  test("turns a pane's own title off before it is named", () => {
+    expect(nameDisableArgv("pane", "%1")).toEqual(["set-option", "-p", "-t", "%1", "allow-set-title", "off"])
+  })
+
+  test("turns a window's own rename off before it is named", () => {
+    expect(nameDisableArgv("window", "@1")).toEqual(["set-option", "-w", "-t", "@1", "allow-rename", "off"])
+  })
+})
+
+describe("nameSequence", () => {
+  test("disables the program's title, then names the pane", () => {
+    expect(nameSequence("pane", "%1", "worker")).toEqual([
+      ["set-option", "-p", "-t", "%1", "allow-set-title", "off"],
+      ["select-pane", "-t", "%1", "-T", "worker"],
+    ])
+  })
+
+  test("disables the program's rename, then names the window", () => {
+    expect(nameSequence("window", "@1", "logs")).toEqual([
+      ["set-option", "-w", "-t", "@1", "allow-rename", "off"],
+      ["rename-window", "-t", "@1", "logs"],
+    ])
+  })
+})
+
+describe("windowOptionArgv", () => {
+  test("sets an option on the window itself", () => {
+    expect(windowOptionArgv("@1", "allow-rename", "off")).toEqual([
+      "set-option",
+      "-w",
+      "-t",
+      "@1",
+      "allow-rename",
+      "off",
+    ])
   })
 })
 
@@ -190,7 +232,7 @@ describe("newArgv", () => {
     ])
   })
 
-  test("maps window place, name, command, and focus", () => {
+  test("maps window place, command, and focus", () => {
     expect(newArgv("$3:", { kind: "window", place: "before" })).toEqual([
       "new-window",
       "-d",
@@ -200,18 +242,6 @@ describe("newArgv", () => {
       "-t",
       "$3:",
       "-b",
-    ])
-    expect(newArgv("$3:", { kind: "window", name: "logs" })).toEqual([
-      "new-window",
-      "-d",
-      "-P",
-      "-F",
-      "#{window_id}",
-      "-t",
-      "$3:",
-      "-a",
-      "-n",
-      "logs",
     ])
     expect(newArgv("$3:", { kind: "window", command: "echo hi" })).toEqual([
       "new-window",

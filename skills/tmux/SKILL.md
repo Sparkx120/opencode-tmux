@@ -43,6 +43,8 @@ Input: `kind` (`pane` or `window`), `name`, optional `target`.
 
 Names a pane (sets its title) or a window. Name panes and windows for their purpose by default: pass `name` when you create them with `tmux_new`, or rename later with `tmux_name`. Later targets are readable that way, but still pass the id: names are not unique.
 
+Naming also turns the program's own title or rename off for that one pane or window, so the name is not overwritten by the next prompt redraw or title escape. The trade is that the pane title no longer reflects the program running in it; the running command is still shown by `tmux_context` in its `cmd=` field, so use that to tell what a pane is doing.
+
 ### `tmux_new`
 
 Input: `kind` (`pane` or `window`), optional `target`, `name`, `command`, `place`, `size`, `focus`.

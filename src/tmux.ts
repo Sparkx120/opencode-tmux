@@ -51,6 +51,23 @@ export function nameArgv(kind: "pane" | "window", target: string, name: string):
   return kind === "pane" ? ["select-pane", "-t", target, "-T", name] : ["rename-window", "-t", target, name]
 }
 
+// A pane's program redraws the title from its prompt on every command, and a
+// window's program may rename it through a title escape. Both are governed by an
+// option that defaults on, so the name set by nameArgv would not outlast the
+// program. Turn the program's own title or rename off first, scoped to the one
+// pane or window so no sibling is affected.
+export function nameDisableArgv(kind: "pane" | "window", target: string): string[] {
+  return kind === "pane"
+    ? paneOptionArgv(target, "allow-set-title", "off")
+    : windowOptionArgv(target, "allow-rename", "off")
+}
+
+// The commands that name one pane or window, in order: turn the program's own
+// title or rename off, then set the name.
+export function nameSequence(kind: "pane" | "window", target: string, name: string): string[][] {
+  return [nameDisableArgv(kind, target), nameArgv(kind, target, name)]
+}
+
 export const DEFAULT_SHELL = "sh"
 
 export type NewKind = "pane" | "window"
@@ -86,7 +103,6 @@ export interface NewArgvOptions {
   place?: PanePlace | WindowPlace
   /** Pane only, passed to `-l`: tmux's own forms (`20`, `30%`). */
   size?: string
-  name?: string
   command?: string
   /** Shell used to run `command` as `<shell> -c command`. Defaults to "sh". */
   shell?: string
@@ -94,8 +110,10 @@ export interface NewArgvOptions {
   focus?: boolean
 }
 
-// One builder for both kinds. split-window has no pane-name flag: the caller
-// names the pane afterwards with select-pane -T against the returned id.
+// One builder for both kinds. Neither split-window nor new-window names the
+// thing with the name we want to keep: the caller names it afterwards with
+// nameSequence against the returned id, so the program's own title or rename is
+// turned off before the name is set.
 export function newArgv(target: string, opts: NewArgvOptions): string[] {
   const detached = opts.focus === true ? [] : ["-d"]
   const shell = opts.shell ?? DEFAULT_SHELL
@@ -126,7 +144,6 @@ export function newArgv(target: string, opts: NewArgvOptions): string[] {
     target,
     ...windowPlaceFlags(opts.place as WindowPlace | undefined),
   ]
-  if (opts.name) argv.push("-n", opts.name)
   if (opts.command) argv.push(shell, "-c", opts.command)
   return argv
 }
@@ -167,6 +184,12 @@ export function targetExistsArgv(target: string): string[] {
 // builder is generic so both calls share one shape.
 export function paneOptionArgv(target: string, name: string, value: string): string[] {
   return ["set-option", "-p", "-t", target, name, value]
+}
+
+// Sets an option on the window itself (`-w`). Naming uses it to turn the
+// program's own rename off for the one window.
+export function windowOptionArgv(target: string, name: string, value: string): string[] {
+  return ["set-option", "-w", "-t", target, name, value]
 }
 
 // Runs a command as the pane's own process, replacing its shell. `-k` permits

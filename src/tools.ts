@@ -25,7 +25,7 @@ import {
   execTimeoutTrailer,
   execTrailer,
   killArgv,
-  nameArgv,
+  nameSequence,
   newArgv,
   PANE_PLACES,
   paneDeadArgv,
@@ -253,9 +253,12 @@ export async function registerTools(
           return { content: 'tmux_name: kind must be "pane" or "window"' }
         }
         if (!args.name) return { content: "tmux_name: name is required" }
-        const argv = nameArgv(args.kind, resolved, args.name)
-        const res = await runner(argv)
-        if (res.code !== 0) return failure(argv, res.message)
+        // The name has to outlast the program: disabling its own title or
+        // rename comes first, so a prompt redraw does not overwrite the name.
+        for (const argv of nameSequence(args.kind, resolved, args.name)) {
+          const res = await runner(argv)
+          if (res.code !== 0) return failure(argv, res.message)
+        }
         return { content: `named ${args.kind} ${resolved} as ${args.name}` }
       },
     })
@@ -314,7 +317,6 @@ export async function registerTools(
           kind,
           place: args.place as PanePlace | WindowPlace | undefined,
           size: args.size,
-          name: args.name,
           command: args.command,
           shell,
           focus: args.focus,
@@ -337,6 +339,12 @@ export async function registerTools(
           const res = await runner(argv)
           if (res.code !== 0) return failure(argv, res.message)
           const id = res.stdout.trim()
+          if (args.name) {
+            for (const call of nameSequence("window", id, args.name)) {
+              const named = await runner(call)
+              if (named.code !== 0) return failure(call, named.message)
+            }
+          }
           return { content: `created window ${id}${args.name ? ` named ${args.name}` : ""}` }
         }
 
@@ -355,9 +363,10 @@ export async function registerTools(
         if (res.code !== 0) return failure(argv, res.message)
         const id = res.stdout.trim()
         if (args.name) {
-          const renameArgv = nameArgv("pane", id, args.name)
-          const renameRes = await runner(renameArgv)
-          if (renameRes.code !== 0) return failure(renameArgv, renameRes.message)
+          for (const call of nameSequence("pane", id, args.name)) {
+            const named = await runner(call)
+            if (named.code !== 0) return failure(call, named.message)
+          }
         }
         return { content: `created pane ${id}${args.name ? ` named ${args.name}` : ""}` }
       },
@@ -671,10 +680,17 @@ export async function registerTools(
         if (placement === "window") {
           const session = await sessionOf(resolved)
           if (!session) return { content: staleTarget(resolved) }
-          const argv = newArgv(session, { kind: "window", name: basename(args.path), command, shell, focus })
+          const argv = newArgv(session, { kind: "window", command, shell, focus })
           const res = await runner(argv)
           if (res.code !== 0) return failure(argv, res.message)
-          return { content: editSummary(resolvedEditor.command, args.path, "window", invocation.nerdtree, res.stdout.trim()) }
+          const id = res.stdout.trim()
+          // The editor sets the terminal title, so turn the window's own rename
+          // off before naming it, or the name is gone once the editor starts.
+          for (const call of nameSequence("window", id, basename(args.path))) {
+            const named = await runner(call)
+            if (named.code !== 0) return failure(call, named.message)
+          }
+          return { content: editSummary(resolvedEditor.command, args.path, "window", invocation.nerdtree, id) }
         }
 
         const argv = newArgv(resolved, { kind: "pane", place: placement as PanePlace, command, shell, focus })

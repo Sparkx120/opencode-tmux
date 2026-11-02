@@ -66,6 +66,8 @@ A denial rejects the tool call with the reason.
 
 Every tool that takes a target defaults it to the agent pane. `tmux_exec` takes no target: it always creates a pane of its own, split from that anchor. Every tool description tells the model to load the `tmux` skill first. The skill carries the addressing model, the argument reference for each tool, and the known pitfalls.
 
+Naming a pane or window, through `tmux_name` or the `name` option of `tmux_new`, also turns the program's own title or rename off for that pane or window, scoped to it alone. The name then survives the next prompt redraw instead of being overwritten. The trade is that the pane title no longer reflects the program running in it; `tmux_context` still reports the running command in its `cmd=` field.
+
 ## AI Disclosure
 
 ### Contribution split

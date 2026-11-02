@@ -7,7 +7,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { registerTools } from "../src/tools.js"
-import { killArgv, newArgv, run, sendKeysArgv, sessionForArgv } from "../src/tmux.js"
+import { killArgv, nameSequence, newArgv, run, sendKeysArgv, sessionForArgv } from "../src/tmux.js"
 
 const enabled = process.env.OPENCODE_TMUX_TEST === "1"
 const SESSION = "ocprobe-int"
@@ -84,6 +84,77 @@ describe.skipIf(!enabled)("live tmux integration", () => {
       expect(windowId.startsWith("@")).toBe(true)
 
       await run(["kill-window", "-t", windowId])
+    } finally {
+      await cleanup()
+    }
+  })
+
+  // A named pane must outlast the program that draws the title. A shell redraws
+  // the title from its prompt on every command, so the name is asserted after a
+  // forced redraw with a bare Enter.
+  test("a named pane keeps its title across a prompt redraw", async () => {
+    const TITLE_SESSION = "ocprobe-title"
+    const name = "reserved-for-me"
+    const cleanup = async () => {
+      await run(["kill-session", "-t", TITLE_SESSION])
+    }
+    try {
+      const created = await run(["new-session", "-d", "-s", TITLE_SESSION, "-x", "80", "-y", "24"])
+      expect(created.code).toBe(0)
+      const split = await run(["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", TITLE_SESSION])
+      expect(split.code).toBe(0)
+      const paneId = split.stdout.trim()
+
+      for (const argv of nameSequence("pane", paneId, name)) {
+        expect((await run(argv)).code).toBe(0)
+      }
+      const title = async () =>
+        (await run(["display-message", "-p", "-t", paneId, "-F", "#{pane_title}"])).stdout.trim()
+      expect(await title()).toBe(name)
+
+      await run(["send-keys", "-t", paneId, "Enter"])
+      await new Promise((r) => setTimeout(r, 300))
+      expect(await title()).toBe(name)
+
+      // A sibling pane keeps no override: the option was scoped to one pane.
+      const sibling = await run(["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", TITLE_SESSION])
+      const siblingId = sibling.stdout.trim()
+      const opt = await run(["show-options", "-p", "-t", siblingId, "allow-set-title"])
+      expect(opt.stdout.trim()).toBe("")
+      await run(["kill-pane", "-t", siblingId])
+    } finally {
+      await cleanup()
+    }
+  })
+
+  // The window case: a program may rename the window, so the option the plugin
+  // sets is what pins the name. The option is turned on first to prove the fix.
+  test("a named window keeps its name across a prompt redraw", async () => {
+    const RENAME_SESSION = "ocprobe-rename"
+    const name = "reserved-window"
+    const cleanup = async () => {
+      await run(["kill-session", "-t", RENAME_SESSION])
+    }
+    try {
+      const created = await run(["new-session", "-d", "-s", RENAME_SESSION, "-x", "80", "-y", "24"])
+      expect(created.code).toBe(0)
+      const win = await run(["new-window", "-d", "-P", "-F", "#{window_id}", "-t", `${RENAME_SESSION}:`])
+      expect(win.code).toBe(0)
+      const windowId = win.stdout.trim()
+      const paneId = (
+        await run(["display-message", "-p", "-t", windowId, "-F", "#{pane_id}"])
+      ).stdout.trim()
+
+      await run(["set-option", "-w", "-t", windowId, "allow-rename", "on"])
+      for (const argv of nameSequence("window", windowId, name)) {
+        expect((await run(argv)).code).toBe(0)
+      }
+      expect((await run(["show-options", "-w", "-t", windowId, "allow-rename"])).stdout).toContain("off")
+
+      await run(["send-keys", "-t", paneId, "Enter"])
+      await new Promise((r) => setTimeout(r, 300))
+      const after = await run(["display-message", "-p", "-t", windowId, "-F", "#{window_name}"])
+      expect(after.stdout.trim()).toBe(name)
     } finally {
       await cleanup()
     }
