@@ -29,7 +29,12 @@ The options are optional.
 
 ## Permissions
 
-The tools that run a command in a shell — `tmux_send`, `tmux_new` when it carries a `command`, and `tmux_edit` — go through OpenCode's shell permission rules before acting. They assert the same `shell` action OpenCode's own shell tool uses, with the raw command as the resource (the string you would type, not its `<shell> -c` wrapper), so rules such as `bun test*` match and your existing approvals apply. A denial rejects the tool call with the reason.
+The tools that run a command in a shell go through OpenCode's shell permission rules before acting. They assert the same `shell` action OpenCode's own shell tool uses, so your existing rules and approvals apply, but the resource differs by tool:
+
+- `tmux_send`, and `tmux_new` when it carries a `command`, assert the raw command (the string you would type, not its `<shell> -c` wrapper), so rules such as `bun test*` match.
+- `tmux_edit` asserts a namespaced resource, `tmux_edit <path>`, rather than the editor command it constructs. One rule, `tmux_edit *`, then allows opening any file in the editor regardless of which editor is resolved.
+
+A denial rejects the tool call with the reason.
 
 ## Tools
 

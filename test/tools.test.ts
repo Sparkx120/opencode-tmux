@@ -546,14 +546,15 @@ describe("tmux_edit", () => {
     expect(calls.some((argv) => argv[0] === "split-window")).toBe(false)
   })
 
-  test("the editor command is gated by the shell permission", async () => {
+  test("the editor is gated by a namespaced resource, not the editor command", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6", editor: "vim" })
     await registerTools(ctx, tmuxRunner(anchorExists("%42\n")).runner, EMPTY_ENV, probeOk)
 
     await tools.get("tmux_edit")!.execute({ path: "/tmp/f.txt" }, TEST_CONTEXT)
     expect(assertCalls.length).toBe(1)
     expect(assertCalls[0]!.action).toBe("shell")
-    expect(assertCalls[0]!.resources).toEqual(["exec vim '/tmp/f.txt'"])
+    expect(assertCalls[0]!.resources).toEqual(["tmux_edit /tmp/f.txt"])
+    expect(assertCalls[0]!.save).toEqual(["tmux_edit /tmp/f.txt"])
   })
 })
 

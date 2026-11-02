@@ -498,13 +498,16 @@ export async function registerTools(
         }
         const command = invocation.command
         const focus = args.focus !== false
+        // The editor command itself is version-specific; gate on a stable,
+        // namespaced resource so one rule (`tmux_edit *`) covers every editor.
+        const resource = `tmux_edit ${args.path}`
         await ctx.permission.assert({
           sessionID: context.sessionID,
           agent: context.agent,
           source: { type: "tool", messageID: context.messageID, id: context.id },
           action: SHELL_ACTION,
-          resources: [command],
-          save: [command],
+          resources: [resource],
+          save: [resource],
         })
 
         if (placement === "window") {
