@@ -70,6 +70,8 @@ is not attached to the service.
 - `test/` — the `bun test` suite. The builders and pure helpers are driven with plain
   values; the host seams (tools, skills, wiring) run over fake `ctx` objects; the
   integration file drives a real tmux and is opt-in.
+- `scripts/contribution-split.ts` — regenerates the `Contribution split` table rows in
+  `README.md` from the percentage pairs.
 
 The plan for the current feature set lives outside the repo, in the plan document for the
 editor-and-tool-merge feature.
@@ -169,13 +171,23 @@ Each row is one cell holding the human percentage, the bar, and the AI percentag
 bar the divider is the axis and sits at a fixed column, so the two sides are separate
 gauges on the same hundred-point scale rather than one bar split at a point. Each side is
 ten cells wide, one cell per ten points, filled outward from the divider with `█` and
-leaving the rest in `░`, so a side draws `floor(percent / 10)` cells. Regenerate the rows
-with a script rather than adjusting the spacing by hand, since hand-padding drifts and the
-divider stops lining up.
+leaving the rest in `░`, so a side draws `floor(percent / 10)` cells. The percentage is
+right-aligned in a fixed-width field before the bar and left-aligned in a fixed-width field
+after it, so each value hugs the divider and neither field moves with the width of its
+number.
 
-Pad so the bar starts at the same offset on every row, and pad after the percentage rather
-than before it: spaces inside the cell survive rendering, while leading spaces are
-stripped.
+Regenerate the rows with `scripts/contribution-split.ts`
+(`bun scripts/contribution-split.ts README.md`) rather than adjusting the spacing by hand,
+since hand-padding drifts and the divider stops lining up.
+
+Pad the fields with non-breaking space (`U+00A0`), not the ordinary space. A markdown table
+renders as HTML, which collapses runs of ordinary spaces to one and strips leading spaces,
+so hand padding in ordinary spaces disappears and the fields stop lining up; non-breaking
+space is exempt from that collapsing and holds the columns in place. The whole bar cell is
+also wrapped in a code span so a monospace font keeps every glyph one cell wide. The code
+span is not sufficient by itself: the `code` element keeps the default `white-space:
+normal`, so ordinary spaces inside it still collapse, which is why the padding is
+non-breaking space rather than a code span alone.
 
 The `Models` list names each model used and the phases it covered, and stays limited to
 models that actually ran the work. Ask before recording a model that has not.
