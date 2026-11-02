@@ -113,14 +113,19 @@ export function sendKeysArgv(target: string, text: string, opts: SendOptions = {
   return argv
 }
 
+// Probes a target for existence: a non-zero exit or empty stdout means the
+// target is gone (e.g. a stale $TMUX_PANE inherited by the daemon).
+export function targetExistsArgv(target: string): string[] {
+  return ["display-message", "-p", "-t", target, "-F", "#{pane_id}"]
+}
+
 export interface CaptureOptions {
   start?: string
   end?: string
   escapes?: boolean
 }
 
-export function captureArgv(target: string, opts: CaptureOptions = {}): string[] {
-  const argv = ["capture-pane", "-p", "-t", target]
+export function captureArgv(target: string, opts: CaptureOptions = {}): string[] {  const argv = ["capture-pane", "-p", "-t", target]
   if (opts.start !== undefined) argv.push("-S", opts.start)
   if (opts.end !== undefined) argv.push("-E", opts.end)
   if (opts.escapes) argv.push("-e")

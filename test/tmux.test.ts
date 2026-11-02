@@ -9,6 +9,7 @@ import {
   resolveTarget,
   sendKeysArgv,
   settleCapture,
+  targetExistsArgv,
 } from "../src/tmux.js"
 
 describe("resolveTarget precedence", () => {
@@ -191,6 +192,12 @@ describe("sendKeysArgv", () => {
     expect(sendKeysArgv("%6", "C-c", { literal: false, enter: false })).toEqual([
       ["send-keys", "-t", "%6", "C-c"],
     ])
+  })
+})
+
+describe("targetExistsArgv", () => {
+  test("asks tmux for the pane id of a target", () => {
+    expect(targetExistsArgv("%6")).toEqual(["display-message", "-p", "-t", "%6", "-F", "#{pane_id}"])
   })
 })
 

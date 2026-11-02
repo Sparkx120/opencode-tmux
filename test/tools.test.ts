@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import type { Plugin } from "@opencode/plugin"
 import { registerTools } from "../src/tools.js"
+import { CONTEXT_FORMAT } from "../src/tmux.js"
 import type { RunResult, Runner } from "../src/tmux.js"
-
 const EMPTY_ENV = {} as NodeJS.ProcessEnv
 
 interface Captured {
@@ -52,30 +52,36 @@ function fakeCtx(
 
 const TEST_CONTEXT = { sessionID: "ses_test", agent: "build", messageID: "msg_x", id: "call_x" }
 
-
 const ok = (stdout: string): RunResult => ({ stdout, stderr: "", code: 0, message: "" })
+const bad = (message: string): RunResult => ({ stdout: "", stderr: message, code: 1, message })
 
-function recordingRunner(stdout = "%9\n"): { runner: Runner; calls: string[][] } {
+// The stale-anchor probe is the display-message that asks for #{pane_id}.
+const isProbe = (argv: string[]) => argv[0] === "display-message" && argv[argv.length - 1] === "#{pane_id}"
+
+function tmuxRunner(respond: (argv: string[]) => RunResult): { runner: Runner; calls: string[][] } {
   const calls: string[][] = []
   const runner: Runner = async (argv) => {
     calls.push(argv)
-    return ok(stdout)
+    return respond(argv)
   }
   return { runner, calls }
 }
+
+// Default responder: the anchor exists, every other command succeeds.
+const anchorExists = (stdout = "%9\n") => (argv: string[]) => (isProbe(argv) ? ok("%6\n") : ok(stdout))
 
 const NAMES = ["tmux_context", "tmux_name", "tmux_new_pane", "tmux_new_window", "tmux_send", "tmux_capture"]
 
 describe("registerTools", () => {
   test("registers exactly the six tmux tools", async () => {
     const { ctx, tools } = fakeCtx()
-    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
     expect([...tools.keys()].sort()).toEqual([...NAMES].sort())
   })
 
   test("every description carries the skill guidance", async () => {
     const { ctx, tools } = fakeCtx()
-    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
     for (const name of NAMES) {
       const t = tools.get(name)!
       expect(t.description).toContain("tmux")
@@ -85,7 +91,7 @@ describe("registerTools", () => {
 
   test("input schemas are objects with additionalProperties false", async () => {
     const { ctx, tools } = fakeCtx()
-    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
     for (const name of NAMES) {
       const schema = tools.get(name)!.input as { type: string; additionalProperties: boolean }
       expect(schema.type).toBe("object")
@@ -95,45 +101,45 @@ describe("registerTools", () => {
 
   test("tools with no target respond with a helpful message instead of running tmux", async () => {
     const { ctx, tools } = fakeCtx()
-    const { runner, calls } = recordingRunner()
+    const { runner, calls } = tmuxRunner(anchorExists())
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    const send = await tools.get("tmux_send")!.execute({ text: "hi" }, {})
+    const send = await tools.get("tmux_send")!.execute({ text: "hi" }, TEST_CONTEXT)
     expect(send.content).toContain("no tmux target")
-    const capture = await tools.get("tmux_capture")!.execute({}, {})
+    const capture = await tools.get("tmux_capture")!.execute({}, TEST_CONTEXT)
     expect(capture.content).toContain("no tmux target")
     expect(calls.length).toBe(0)
   })
 
   test("target resolves from the plugin option when the arg is omitted", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" })
-    const { runner, calls } = recordingRunner("pane %6\n")
+    const { runner, calls } = tmuxRunner(anchorExists())
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    const result = await tools.get("tmux_send")!.execute({ text: "ls" }, {})
+    const result = await tools.get("tmux_send")!.execute({ text: "ls" }, TEST_CONTEXT)
     expect(result.content).toContain("sent")
-    expect(calls[0]).toEqual(["send-keys", "-t", "%6", "-l", "ls"])
-    expect(calls[1]).toEqual(["send-keys", "-t", "%6", "Enter"])
+    expect(calls[1]).toEqual(["send-keys", "-t", "%6", "-l", "ls"])
+    expect(calls[2]).toEqual(["send-keys", "-t", "%6", "Enter"])
   })
 
   test("tmux_new_pane returns the new pane id and names it", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" })
-    const { runner, calls } = recordingRunner("%42\n")
+    const { runner, calls } = tmuxRunner(anchorExists("%42\n"))
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    const result = await tools.get("tmux_new_pane")!.execute({ name: "worker" }, {})
+    const result = await tools.get("tmux_new_pane")!.execute({ name: "worker" }, TEST_CONTEXT)
     expect(result.content).toContain("%42")
-    expect(calls[0]).toEqual(["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", "%6", "-v"])
-    expect(calls[1]).toEqual(["select-pane", "-t", "%42", "-T", "worker"])
+    expect(calls[1]).toEqual(["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", "%6", "-v"])
+    expect(calls[2]).toEqual(["select-pane", "-t", "%42", "-T", "worker"])
   })
 
   test("tmux_new_pane runs a command through the configured shell", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6", shell: "bash" })
-    const { runner, calls } = recordingRunner("%42\n")
+    const { runner, calls } = tmuxRunner(anchorExists("%42\n"))
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    await tools.get("tmux_new_pane")!.execute({ command: "ls | wc -l" }, {})
-    expect(calls[0]).toEqual([
+    await tools.get("tmux_new_pane")!.execute({ command: "ls | wc -l" }, TEST_CONTEXT)
+    expect(calls[1]).toEqual([
       "split-window",
       "-d",
       "-P",
@@ -150,11 +156,11 @@ describe("registerTools", () => {
 
   test("tmux_new_window defaults the command shell to sh and targets the agent session", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" })
-    const { runner, calls } = recordingRunner("@7\n")
+    const { runner, calls } = tmuxRunner(anchorExists("@7\n"))
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    await tools.get("tmux_new_window")!.execute({ command: "echo hi" }, {})
-    expect(calls[0]).toEqual([
+    await tools.get("tmux_new_window")!.execute({ command: "echo hi" }, TEST_CONTEXT)
+    expect(calls[1]).toEqual([
       "new-window",
       "-d",
       "-P",
@@ -170,17 +176,17 @@ describe("registerTools", () => {
 
   test("tmux_new_window reports a missing target instead of running tmux", async () => {
     const { ctx, tools } = fakeCtx()
-    const { runner, calls } = recordingRunner()
+    const { runner, calls } = tmuxRunner(anchorExists())
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    const result = await tools.get("tmux_new_window")!.execute({}, {})
+    const result = await tools.get("tmux_new_window")!.execute({}, TEST_CONTEXT)
     expect(result.content).toContain("no tmux target")
     expect(calls.length).toBe(0)
   })
 
   test("tmux_send no longer requires a target in its schema", async () => {
     const { ctx, tools } = fakeCtx()
-    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
     const schema = tools.get("tmux_send")!.input as { required: string[] }
     expect(schema.required).toContain("text")
     expect(schema.required).not.toContain("target")
@@ -188,28 +194,28 @@ describe("registerTools", () => {
 
   test("tmux_capture returns captured text", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" })
-    const { runner } = recordingRunner("hello world\n")
+    const { runner } = tmuxRunner(anchorExists("hello world\n"))
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    const result = await tools.get("tmux_capture")!.execute({}, {})
+    const result = await tools.get("tmux_capture")!.execute({}, TEST_CONTEXT)
     expect(result.content).toContain("hello world")
   })
 
   test("tmux_context reports the agent pane and the pane list", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" })
-    const { runner } = recordingRunner("sess:0.1 pane_id=%6 title=x cmd=zsh\n")
+    const { runner } = tmuxRunner((argv) => (isProbe(argv) ? ok("%6\n") : ok("sess:0.1 pane_id=%6 title=x cmd=zsh\n")))
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    const result = await tools.get("tmux_context")!.execute({}, {})
+    const result = await tools.get("tmux_context")!.execute({}, TEST_CONTEXT)
     expect(result.content).toContain("pane_id=%6")
   })
 
   test("a failed tmux command becomes a text message, not a throw", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" })
-    const runner: Runner = async () => ({ stdout: "", stderr: "can't find pane", code: 1, message: "can't find pane" })
+    const runner: Runner = async (argv) => (isProbe(argv) ? ok("%6\n") : bad("can't find pane"))
     await registerTools(ctx, runner, EMPTY_ENV)
 
-    const result = await tools.get("tmux_capture")!.execute({}, {})
+    const result = await tools.get("tmux_capture")!.execute({}, TEST_CONTEXT)
     expect(result.content).toContain("can't find pane")
   })
 })
@@ -217,7 +223,7 @@ describe("registerTools", () => {
 describe("permission gate", () => {
   test("tmux_send asserts the shell action with the text as the resource", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
-    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
 
     await tools.get("tmux_send")!.execute({ text: "rm -rf /" }, TEST_CONTEXT)
 
@@ -233,7 +239,7 @@ describe("permission gate", () => {
 
   test("tmux_new_pane skips the gate when no command is given", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
-    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
 
     await tools.get("tmux_new_pane")!.execute({}, TEST_CONTEXT)
     expect(assertCalls.length).toBe(0)
@@ -241,7 +247,7 @@ describe("permission gate", () => {
 
   test("tmux_new_pane gates the shell-wrapped command", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6", shell: "bash" })
-    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
 
     await tools.get("tmux_new_pane")!.execute({ command: "ls | wc -l" }, TEST_CONTEXT)
     expect(assertCalls.length).toBe(1)
@@ -251,7 +257,7 @@ describe("permission gate", () => {
 
   test("tmux_new_window gates the shell-wrapped command", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
-    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
 
     await tools.get("tmux_new_window")!.execute({ command: "echo hi" }, TEST_CONTEXT)
     expect(assertCalls.length).toBe(1)
@@ -261,7 +267,7 @@ describe("permission gate", () => {
 
   test("tmux_new_window skips the gate when no command is given", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
-    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
 
     await tools.get("tmux_new_window")!.execute({}, TEST_CONTEXT)
     expect(assertCalls.length).toBe(0)
@@ -271,7 +277,7 @@ describe("permission gate", () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" }, async () => {
       throw new Error("permission denied by user")
     })
-    await registerTools(ctx, recordingRunner().runner, EMPTY_ENV)
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
 
     await expect(tools.get("tmux_send")!.execute({ text: "x" }, TEST_CONTEXT)).rejects.toThrow("permission denied")
   })
@@ -280,10 +286,52 @@ describe("permission gate", () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" }, async () => {
       throw new Error("nope")
     })
-    const { runner, calls } = recordingRunner()
+    const { runner, calls } = tmuxRunner(anchorExists())
     await registerTools(ctx, runner, EMPTY_ENV)
 
     await expect(tools.get("tmux_new_pane")!.execute({ command: "ls" }, TEST_CONTEXT)).rejects.toThrow("nope")
-    expect(calls.length).toBe(0)
+    // The command never reaches tmux: no split-window call.
+    expect(calls.some((argv) => argv[0] === "split-window")).toBe(false)
+  })
+})
+
+describe("stale target detection", () => {
+  const stale = (stdout = "%9\n") => (argv: string[]) => (isProbe(argv) ? bad("can't find pane") : ok(stdout))
+
+  for (const [name, args] of [
+    ["tmux_send", { text: "hi" }],
+    ["tmux_name", { kind: "pane", name: "n" }],
+    ["tmux_new_pane", {}],
+    ["tmux_new_window", {}],
+    ["tmux_capture", {}],
+  ] as const) {
+    test(`${name} reports a stale target instead of acting`, async () => {
+      const { ctx, tools } = fakeCtx({ pane: "%6" })
+      const { runner, calls } = tmuxRunner(stale())
+      await registerTools(ctx, runner, EMPTY_ENV)
+
+      const result = await tools.get(name)!.execute(args, TEST_CONTEXT)
+      expect(result.content).toContain("does not exist")
+      expect(result.content).toContain("%6")
+      // Only the existence probe ran.
+      expect(calls.length).toBe(1)
+      expect(calls[0]).toEqual(["display-message", "-p", "-t", "%6", "-F", "#{pane_id}"])
+    })
+  }
+
+  test("tmux_context degrades to the pane list when the anchor is stale", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner(stale("sess:0.1 pane_id=%2 title=y cmd=zsh\n"))
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_context")!.execute({}, TEST_CONTEXT)
+    expect(result.content).toContain("pane_id=%2")
+    expect(result.content).toMatch(/anchor/i)
+    // The agent-pane display-message (context format) never runs; only the probe
+    // and the pane list do.
+    expect(
+      calls.some((argv) => argv[0] === "display-message" && argv[argv.length - 1] === CONTEXT_FORMAT),
+    ).toBe(false)
+    expect(calls.some((argv) => argv[0] === "list-panes")).toBe(true)
   })
 })

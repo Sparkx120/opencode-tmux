@@ -15,6 +15,7 @@ import {
   run as defaultRun,
   sendKeysArgv,
   settleCapture,
+  targetExistsArgv,
 } from "./tmux.js"
 import type { Runner } from "./tmux.js"
 
@@ -29,6 +30,10 @@ const SHELL_ACTION = "shell"
 // resource the permission gate evaluates.
 function shellCommand(shell: string, command: string): string {
   return `${shell} -c ${command}`
+}
+
+function staleTarget(target: string): string {
+  return `tmux target "${target}" does not exist (stale $TMUX_PANE?); pass a target or set the plugin \`pane\` option`
 }
 
 function paneOption(ctx: Plugin.Context): string | undefined {
@@ -54,6 +59,14 @@ export async function registerTools(
   const shell = shellOption(ctx)
   const target = (explicit?: string) => resolveTarget(explicit, pane, env)
 
+  // The resolved target can be a stale $TMUX_PANE the daemon inherited. Probe
+  // it before acting so a dead anchor fails clearly instead of with a raw tmux
+  // error.
+  const confirmed = async (resolved: string): Promise<boolean> => {
+    const res = await runner(targetExistsArgv(resolved))
+    return res.code === 0 && res.stdout.trim() !== ""
+  }
+
   return ctx.tool.transform((editor) => {
     editor.add({
       name: "tmux_context",
@@ -63,7 +76,11 @@ export async function registerTools(
       execute: async () => {
         const anchor = target(undefined)
         const chunks: string[] = []
-        for (const argv of contextArgv(anchor)) {
+        let anchorOk = false
+        if (anchor && (await confirmed(anchor))) {
+          anchorOk = true
+        }
+        for (const argv of contextArgv(anchorOk ? anchor : undefined)) {
           const res = await runner(argv)
           if (res.code !== 0) return failure(argv, res.message)
           chunks.push(res.stdout.trimEnd())
@@ -71,6 +88,10 @@ export async function registerTools(
         if (!anchor) {
           chunks.unshift(
             "No agent pane available (set $TMUX_PANE or the plugin `pane` option); listing all panes.",
+          )
+        } else if (!anchorOk) {
+          chunks.unshift(
+            `Anchor pane ${anchor} is unavailable (stale $TMUX_PANE?); listing all panes instead.`,
           )
         }
         return { content: chunks.filter((c) => c.length > 0).join("\n") }
@@ -94,6 +115,7 @@ export async function registerTools(
         const args = raw as { kind?: string; name?: string; target?: string }
         const resolved = target(args.target)
         if (!resolved) return { content: NO_TARGET }
+        if (!(await confirmed(resolved))) return { content: staleTarget(resolved) }
         if (args.kind !== "pane" && args.kind !== "window") {
           return { content: 'tmux_name: kind must be "pane" or "window"' }
         }
@@ -123,6 +145,7 @@ export async function registerTools(
         const args = raw as { target?: string; name?: string; command?: string; vertical?: boolean }
         const resolved = target(args.target)
         if (!resolved) return { content: NO_TARGET }
+        if (!(await confirmed(resolved))) return { content: staleTarget(resolved) }
         if (args.command) {
           await ctx.permission.assert({
             sessionID: context.sessionID,
@@ -163,6 +186,7 @@ export async function registerTools(
         const args = raw as { target?: string; name?: string; command?: string }
         const resolved = target(args.target)
         if (!resolved) return { content: NO_TARGET }
+        if (!(await confirmed(resolved))) return { content: staleTarget(resolved) }
         if (args.command) {
           await ctx.permission.assert({
             sessionID: context.sessionID,
@@ -201,6 +225,7 @@ export async function registerTools(
         const resolved = target(args.target)
         if (!resolved) return { content: NO_TARGET }
         if (typeof args.text !== "string") return { content: "tmux_send: text is required" }
+        if (!(await confirmed(resolved))) return { content: staleTarget(resolved) }
         const enter = args.enter !== false
         await ctx.permission.assert({
           sessionID: context.sessionID,
@@ -236,6 +261,7 @@ export async function registerTools(
         const args = raw as { target?: string; start?: string; end?: string; escapes?: boolean }
         const resolved = target(args.target)
         if (!resolved) return { content: NO_TARGET }
+        if (!(await confirmed(resolved))) return { content: staleTarget(resolved) }
         const argv = captureArgv(resolved, { start: args.start, end: args.end, escapes: args.escapes })
         const captured = await settleCapture(async () => {
           const res = await runner(argv)
