@@ -1,6 +1,6 @@
 ---
 name: Tmux
-description: Interact with tmux panes and windows: inspect context, name panes/windows, create and kill panes/windows, send commands, and capture pane output
+description: Interact with tmux panes and windows: inspect context, name panes/windows, create and kill panes/windows, send commands, run commands and capture output
 ---
 
 # Tmux
@@ -60,13 +60,26 @@ Input: `kind` (`pane` or `window`), optional `target` (defaults to the agent pan
 
 Kills a pane or window. It refuses the agent's own pane, and refuses the window that contains it, with no override: killing either ends the session. A refusal is a plain message, not an error. The existence probe runs first, so a missing target gets the stale-target message. Use it to close a pane you created once it is no longer needed.
 
-The anchor guard is shared: `tmux_send` also refuses the agent pane, because typing into it drives the agent's own TUI. Pass a target of another pane.
+The anchor guard is shared: `tmux_send` and `tmux_exec` also refuse the agent pane, because typing into it drives the agent's own TUI. Pass a target of another pane, or set `new` for `tmux_exec` to create one.
+
+A pane whose process is a one-shot command closes when that command exits, so its output is gone; this is why `tmux_exec` runs its command in the pane's shell rather than as the pane's process.
 
 ### `tmux_send`
 
 Input: `text`, `target` (required in practice), optional `literal` (default true), `enter` (default true).
 
 Sends `text` to a pane, then a separate Enter when `enter` is true. The target must be a pane other than the agent's own: an omitted target resolves to the agent pane and is refused, so pass an explicit target. With `literal` true the text is sent verbatim, so `|`, `"`, and `;` stay literal instead of being read as key names. Set `literal` false only to send a key name such as `C-c`. To run a shell command, send the command as normal text: tmux sends it to the pane's shell, plus Enter. The text is written into the pane's existing shell, so `tmux_send` does not wrap it in a shell; this call still goes through the shell permission gate.
+
+### `tmux_exec`
+
+Input: `command`, optional `new` (`pane` or `window`), `target`, `place`, `focus`, `timeoutMs`.
+
+Runs a shell command in a tmux pane and returns its captured output. Reach for it when you need a command's output, rather than typing into a pane by hand and capturing it separately.
+
+- With `new`, it creates the pane or window first (detached by default; `place` and `focus` behave as in `tmux_new`) and runs the command in it. The new pane or window keeps its shell after the command finishes, so the output stays readable; close it with `tmux_kill` when you are done.
+- Without `new`, it runs in `target`, which must be an existing pane other than the agent's own. An omitted target resolves to the anchor and is refused.
+
+`timeoutMs` bounds the output poll (default 800 ms). The command goes through the shell permission gate with the raw command as the resource, so the usual shell rules still govern it; `tmux_exec` is not a way around them. A pane whose own process is the command (as with `tmux_new`'s `command`) closes the moment that command exits, taking its output with it; that is why `tmux_exec` runs the command in the pane's shell instead.
 
 ### `tmux_capture`
 

@@ -119,10 +119,19 @@ const withPaneList = (probeTarget = "%10\n") => (argv: string[]) =>
             ? ok("sess:0.1 pane_id=%10 title=x cmd=opencode\n")
             : ok("%9\n")
 
-const NAMES = ["tmux_context", "tmux_new", "tmux_kill", "tmux_name", "tmux_send", "tmux_capture", "tmux_edit"]
+const NAMES = [
+  "tmux_context",
+  "tmux_new",
+  "tmux_kill",
+  "tmux_name",
+  "tmux_send",
+  "tmux_capture",
+  "tmux_edit",
+  "tmux_exec",
+]
 
 describe("registerTools", () => {
-  test("registers exactly the seven tmux tools", async () => {
+  test("registers exactly the eight tmux tools", async () => {
     const { ctx, tools } = fakeCtx()
     await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
     expect([...tools.keys()].sort()).toEqual([...NAMES].sort())
@@ -571,6 +580,145 @@ describe("tmux_edit", () => {
   })
 })
 
+describe("tmux_exec", () => {
+  test("runs in an existing pane and returns the output", async () => {
+    const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner((argv) =>
+      isProbe(argv) ? ok(`${targetOf(argv)}\n`) : argv[0] === "capture-pane" ? ok("hello\n") : ok(""),
+    )
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_exec")!.execute({ command: "echo hello", target: "%4" }, TEST_CONTEXT)
+    expect(result.content).toBe("hello")
+    expect(assertCalls.length).toBe(1)
+    expect(assertCalls[0]!.action).toBe("shell")
+    expect(assertCalls[0]!.resources).toEqual(["echo hello"])
+    expect(assertCalls[0]!.save).toEqual(["echo hello"])
+    const sends = calls.filter((argv) => argv[0] === "send-keys")
+    expect(sends[0]).toEqual(["send-keys", "-t", "%4", "-l", "--", "echo hello"])
+    expect(sends[1]).toEqual(["send-keys", "-t", "%4", "Enter"])
+    expect(calls.find((argv) => argv[0] === "capture-pane")).toEqual(["capture-pane", "-p", "-t", "%4"])
+  })
+
+  test("refuses the anchor pane, omitted or explicit", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner(anchorExists())
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const omitted = await tools.get("tmux_exec")!.execute({ command: "ls" }, TEST_CONTEXT)
+    expect(omitted.content).toMatch(/refus/i)
+    expect(omitted.content).toContain("another pane")
+    const explicit = await tools.get("tmux_exec")!.execute({ command: "ls", target: "%6" }, TEST_CONTEXT)
+    expect(explicit.content).toMatch(/refus/i)
+    expect(calls.some((argv) => argv[0] === "send-keys")).toBe(false)
+  })
+
+  test("creates a pane and runs there", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner((argv) =>
+      isProbe(argv)
+        ? ok("%6\n")
+        : argv[0] === "split-window"
+          ? ok("%42\n")
+          : argv[0] === "capture-pane"
+            ? ok("out\n")
+            : ok(""),
+    )
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_exec")!.execute({ command: "echo hi", new: "pane" }, TEST_CONTEXT)
+    expect(result.content).toBe("out")
+    expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
+      "split-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-v",
+    ])
+    const sends = calls.filter((argv) => argv[0] === "send-keys")
+    expect(sends[0]).toEqual(["send-keys", "-t", "%42", "-l", "--", "echo hi"])
+    expect(calls.find((argv) => argv[0] === "capture-pane")).toEqual(["capture-pane", "-p", "-t", "%42"])
+  })
+
+  test("creates a window and runs there", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner((argv) =>
+      isProbe(argv)
+        ? ok("%6\n")
+        : isSessionProbe(argv)
+          ? ok("$3:\n")
+          : argv[0] === "new-window"
+            ? ok("@7\n")
+            : argv[0] === "capture-pane"
+              ? ok("winout\n")
+              : ok(""),
+    )
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_exec")!.execute({ command: "echo hi", new: "window" }, TEST_CONTEXT)
+    expect(result.content).toBe("winout")
+    expect(calls.find((argv) => argv[0] === "new-window")).toEqual([
+      "new-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{window_id}",
+      "-t",
+      "$3:",
+      "-a",
+    ])
+    const sends = calls.filter((argv) => argv[0] === "send-keys")
+    expect(sends[0]).toEqual(["send-keys", "-t", "@7", "-l", "--", "echo hi"])
+  })
+
+  test("honours focus and place for a new pane", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = tmuxRunner((argv) =>
+      isProbe(argv) ? ok("%6\n") : argv[0] === "split-window" ? ok("%42\n") : ok("out\n"),
+    )
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    await tools.get("tmux_exec")!.execute(
+      { command: "ls", new: "pane", place: "right", focus: true },
+      TEST_CONTEXT,
+    )
+    expect(calls.find((argv) => argv[0] === "split-window")).toEqual([
+      "split-window",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-h",
+    ])
+  })
+
+  test("rejects a place that does not fit the kind", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
+
+    const result = await tools.get("tmux_exec")!.execute({ command: "ls", new: "pane", place: "after" }, TEST_CONTEXT)
+    expect(result.content).toContain("place")
+  })
+
+  test("needs a target when it is not creating one", async () => {
+    const { ctx, tools } = fakeCtx()
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
+    const result = await tools.get("tmux_exec")!.execute({ command: "ls" }, TEST_CONTEXT)
+    expect(result.content).toContain("no tmux target")
+  })
+
+  test("requires a command", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    await registerTools(ctx, tmuxRunner(anchorExists()).runner, EMPTY_ENV)
+    const result = await tools.get("tmux_exec")!.execute({}, TEST_CONTEXT)
+    expect(result.content).toContain("command is required")
+  })
+})
+
 describe("permission gate", () => {
   test("tmux_send asserts the shell action with the text as the resource", async () => {
     const { ctx, tools, assertCalls } = fakeCtx({ pane: "%6" })
@@ -655,6 +803,7 @@ describe("stale target detection", () => {
     ["tmux_kill", { kind: "pane" }],
     ["tmux_capture", {}],
     ["tmux_edit", { path: "/tmp/f" }],
+    ["tmux_exec", { command: "hi" }],
   ] as const) {
     test(`${name} reports a stale target instead of acting`, async () => {
       const { ctx, tools } = fakeCtx({ pane: "%6" })

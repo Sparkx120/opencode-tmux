@@ -32,7 +32,7 @@ describe("plugin entry", () => {
     const { ctx, toolNames, skillIds } = fakeCtx()
     await plugin.setup(ctx as never)
     expect(toolNames.has("tmux_context")).toBe(true)
-    expect(toolNames.size).toBe(7)
+    expect(toolNames.size).toBe(8)
     expect(skillIds.has("tmux")).toBe(true)
     expect(skillIds.has("tmux-editor")).toBe(true)
     expect(skillIds.size).toBe(2)

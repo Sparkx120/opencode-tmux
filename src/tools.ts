@@ -49,6 +49,8 @@ const REFUSE_ANCHOR_WINDOW =
 // Typing into the anchor drives the agent's own TUI, so the same guard applies.
 const REFUSE_ANCHOR_INPUT =
   "refusing to type into the anchor pane: it is the agent's own TUI, and there is no override. Pass the target of another pane."
+const REFUSE_ANCHOR_EXEC =
+  "refusing to run in the anchor pane: it is the agent's own TUI, and there is no override. Pass the target of another pane, or set `new` to create one."
 
 // The action name OpenCode's own shell tool uses (packages/core tool/plugin/shell.ts
 // sets `action: name` with `name = "shell"`), so the same permission rules apply.
@@ -430,6 +432,116 @@ export async function registerTools(
           if (res.code !== 0) return failure(argv, res.message)
         }
         return { content: `sent ${args.text.length} chars to ${resolved}${enter ? " and pressed Enter" : ""}` }
+      },
+    })
+
+    editor.add({
+      name: "tmux_exec",
+      description:
+        "Run a shell command in a tmux pane and return its output. Load the `tmux` skill first. Input: command, optional new (pane|window), target, place, focus, timeoutMs. Refuses the agent's own pane.",
+      input: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "Shell command to run" },
+          new: {
+            type: "string",
+            enum: ["pane", "window"],
+            description: "Create a pane or window first and run the command there",
+          },
+          target: { type: "string", description: "Existing pane to run in; required unless `new` is set" },
+          place: {
+            type: "string",
+            enum: [...PANE_PLACES, ...WINDOW_PLACES],
+            description: "Placement for `new`, as tmux_new: pane bottom/top/right/left, window after/before",
+          },
+          focus: { type: "boolean", description: "Activate a pane or window created by `new` (default false)" },
+          timeoutMs: { type: "integer", description: "Output poll timeout in milliseconds (default 800)" },
+        },
+        required: ["command"],
+        additionalProperties: false,
+      },
+      execute: async (raw, context) => {
+        const args = raw as {
+          command?: string
+          new?: string
+          target?: string
+          place?: string
+          focus?: boolean
+          timeoutMs?: number
+        }
+        if (typeof args.command !== "string") return { content: "tmux_exec: command is required" }
+        if (args.new !== undefined && args.new !== "pane" && args.new !== "window") {
+          return { content: 'tmux_exec: new must be "pane" or "window"' }
+        }
+        const base = target(args.target)
+        if (!base) return { content: NO_TARGET }
+
+        // Resolve where the command runs before prompting: a stale target is
+        // reported first, and an existing target must not be the anchor.
+        let createArgv: string[] | undefined
+        let runTarget = base
+        if (args.new) {
+          const kind: NewKind = args.new
+          const places: readonly string[] = kind === "pane" ? PANE_PLACES : WINDOW_PLACES
+          if (args.place !== undefined && !places.includes(args.place)) {
+            return { content: `tmux_exec: place for a ${kind} must be one of ${places.join(", ")}` }
+          }
+          if (!(await confirmed(base))) return { content: staleTarget(base) }
+          if (kind === "window") {
+            const session = await sessionOf(base)
+            if (!session) return { content: staleTarget(base) }
+            createArgv = newArgv(session, {
+              kind,
+              place: args.place as WindowPlace | undefined,
+              shell,
+              focus: args.focus,
+            })
+          } else {
+            createArgv = newArgv(base, { kind, place: args.place as PanePlace | undefined, shell, focus: args.focus })
+          }
+        } else {
+          const paneId = await paneOf(base)
+          if (!paneId) return { content: staleTarget(base) }
+          if (await isAnchorPane(paneId)) return { content: REFUSE_ANCHOR_EXEC }
+        }
+
+        // The raw command is the resource, so the per-command shell rules still
+        // govern what actually runs; tmux_exec is not a way around them.
+        await ctx.permission.assert({
+          sessionID: context.sessionID,
+          agent: context.agent,
+          source: { type: "tool", messageID: context.messageID, id: context.id },
+          action: SHELL_ACTION,
+          resources: [args.command],
+          save: [args.command],
+        })
+
+        // Create detached, then type the command into the new pane/window's own
+        // shell. Running the command as the pane process would destroy the pane
+        // before its output could be read.
+        if (createArgv) {
+          const res = await runner(createArgv)
+          if (res.code !== 0) return failure(createArgv, res.message)
+          runTarget = res.stdout.trim()
+          if (!runTarget) return { content: "tmux_exec: the new pane or window did not report an id" }
+        }
+
+        for (const argv of sendKeysArgv(runTarget, args.command, {})) {
+          const res = await runner(argv)
+          if (res.code !== 0) return failure(argv, res.message)
+        }
+
+        const capture = captureArgv(runTarget, {})
+        const timeoutMs = typeof args.timeoutMs === "number" ? args.timeoutMs : undefined
+        const captured = await settleCapture(
+          async () => {
+            const res = await runner(capture)
+            return res.code === 0 ? res.stdout : `tmux capture-pane failed: ${res.message}`
+          },
+          { timeoutMs },
+        )
+        const text = captured.replace(/\s+$/, "")
+        return { content: text.length > 0 ? text : "(no output)" }
       },
     })
 

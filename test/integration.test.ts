@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { registerTools } from "../src/tools.js"
 import { killArgv, newArgv, run, sendKeysArgv, sessionForArgv } from "../src/tmux.js"
 
 const enabled = process.env.OPENCODE_TMUX_TEST === "1"
@@ -135,6 +136,43 @@ describe.skipIf(!enabled)("live tmux integration", () => {
       expect(cmd).toBe("vim")
 
       await run(killArgv("pane", paneId))
+    } finally {
+      await cleanup()
+    }
+  })
+
+  // tmux_exec, driven through the real tool: create a pane, run a command, read
+  // the output, then clean up.
+  test("tmux_exec returns a command's output from a new pane", async () => {
+    const EXEC_SESSION = "ocprobe-exec"
+    const tools = new Map<string, { execute: (args: unknown, context: unknown) => Promise<{ content: string }> }>()
+    const ctx = {
+      options: { editor: "nano" },
+      permission: { assert: async () => {} },
+      tool: {
+        transform: async (cb: (editor: unknown) => void) => {
+          cb({ add: (tool: { name: string }) => tools.set(tool.name, tool as never) })
+          return { dispose: async () => {} }
+        },
+      },
+    }
+    const cleanup = async () => {
+      await run(["kill-session", "-t", EXEC_SESSION])
+    }
+    try {
+      const created = await run(["new-session", "-d", "-s", EXEC_SESSION, "-x", "80", "-y", "24"])
+      expect(created.code).toBe(0)
+
+      await registerTools(ctx as never, run, {} as NodeJS.ProcessEnv, {
+        exec: async () => 0,
+        isDirectory: () => false,
+      })
+      const exec = tools.get("tmux_exec")!
+      const result = await exec.execute(
+        { command: "echo tmux_exec_marker", new: "pane", target: EXEC_SESSION, timeoutMs: 3000 },
+        { sessionID: "ses", agent: "a", messageID: "m", id: "c" },
+      )
+      expect(result.content).toContain("tmux_exec_marker")
     } finally {
       await cleanup()
     }

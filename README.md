@@ -4,7 +4,7 @@ An OpenCode V2 plugin that adds a small set of tmux tools and two skills that do
 
 ## What it does
 
-- Registers lean tools to inspect a tmux session, name panes and windows, create and kill panes and windows, send text, and capture pane output.
+- Registers lean tools to inspect a tmux session, name panes and windows, create and kill panes and windows, send text, run commands and capture their output, and open the user's editor.
 - Registers a `tmux` skill that teaches the model the session/window/pane model, target syntax, and the pitfalls of driving tmux from a non-tty process, and a `tmux-editor` skill for opening the user's editor.
 
 The tools act on the pane the agent runs in by default. That anchor is resolved once per session, in this order: an explicit `target` on the call, then the `pane` option, then the pane whose current path matches the session's location directory, then `$TMUX_PANE`. The directory match exists because `opencode serve` is a long-lived daemon shared by every TUI, so the `$TMUX_PANE` it inherited belongs to whichever pane launched the daemon, not to the calling session. When the directory matches more than one pane, one running the opencode TUI wins; if that is still ambiguous, the resolver falls back to `$TMUX_PANE` rather than guessing. A resolved target that no longer exists is detected before the operation runs and reported, rather than failing with a raw tmux error. `tmux_context` labels the anchor line with how it was resolved.
@@ -31,7 +31,7 @@ The options are optional.
 
 The tools that run a command in a shell go through OpenCode's shell permission rules before acting. They assert the same `shell` action OpenCode's own shell tool uses, so your existing rules and approvals apply, but the resource differs by tool:
 
-- `tmux_send`, and `tmux_new` when it carries a `command`, assert the raw command (the string you would type, not its `<shell> -c` wrapper), so rules such as `bun test*` match.
+- `tmux_send`, `tmux_exec`, and `tmux_new` when it carries a `command`, assert the raw command (the string you would type, not its `<shell> -c` wrapper), so rules such as `bun test*` match, and `tmux_exec` still obeys the shell rules rather than bypassing them.
 - `tmux_edit` asserts a namespaced resource, `tmux_edit <path>`, rather than the editor command it constructs. One rule, `tmux_edit *`, then allows opening any file in the editor regardless of which editor is resolved.
 
 A denial rejects the tool call with the reason.
@@ -44,6 +44,7 @@ A denial rejects the tool call with the reason.
 - `tmux_kill` — kill a pane or window, refusing the agent's own pane and its window.
 - `tmux_send` — send text or a command to a pane.
 - `tmux_capture` — read a pane's contents, waiting for it to settle.
+- `tmux_exec` — run a shell command in a pane and return its output.
 - `tmux_edit` — open the editor on a file or folder, on explicit request only.
 
 Every tool defaults its target to the agent pane unless it is given one. Every tool description tells the model to load the `tmux` skill first. The skill carries the addressing model, the argument reference for each tool, and the known pitfalls.
