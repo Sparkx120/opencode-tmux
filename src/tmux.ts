@@ -62,29 +62,36 @@ export function nameArgv(kind: "pane" | "window", target: string, name: string):
   return kind === "pane" ? ["select-pane", "-t", target, "-T", name] : ["rename-window", "-t", target, name]
 }
 
+export const DEFAULT_SHELL = "sh"
+
 export interface NewPaneOptions {
   /** true splits below (tmux -v), false splits to the side (-h). Defaults true. */
   vertical?: boolean
   command?: string
+  /** Shell used to run `command` as `<shell> -c command`. Defaults to "sh". */
+  shell?: string
 }
 
 // split-window has no pane-name flag: the caller names the pane afterwards
-// with select-pane -T against the returned id.
+// with select-pane -T against the returned id. A command is wrapped in a shell
+// so pipes, redirects, &&, and globs reach the pane intact.
 export function newPaneArgv(target: string, opts: NewPaneOptions = {}): string[] {
   const argv = ["split-window", "-d", "-P", "-F", "#{pane_id}", "-t", target, opts.vertical === false ? "-h" : "-v"]
-  if (opts.command) argv.push(opts.command)
+  if (opts.command) argv.push(opts.shell ?? DEFAULT_SHELL, "-c", opts.command)
   return argv
 }
 
 export interface NewWindowOptions {
   name?: string
   command?: string
+  /** Shell used to run `command` as `<shell> -c command`. Defaults to "sh". */
+  shell?: string
 }
 
 export function newWindowArgv(opts: NewWindowOptions = {}): string[] {
   const argv = ["new-window", "-d", "-P", "-F", "#{window_id}"]
   if (opts.name) argv.push("-n", opts.name)
-  if (opts.command) argv.push(opts.command)
+  if (opts.command) argv.push(opts.shell ?? DEFAULT_SHELL, "-c", opts.command)
   return argv
 }
 

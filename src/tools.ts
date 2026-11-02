@@ -7,6 +7,7 @@ import type { Plugin } from "@opencode/plugin"
 import {
   captureArgv,
   contextArgv,
+  DEFAULT_SHELL,
   nameArgv,
   newPaneArgv,
   newWindowArgv,
@@ -25,6 +26,11 @@ function paneOption(ctx: Plugin.Context): string | undefined {
   return typeof value === "string" ? value : undefined
 }
 
+function shellOption(ctx: Plugin.Context): string {
+  const value = ctx.options.shell
+  return typeof value === "string" && value.length > 0 ? value : DEFAULT_SHELL
+}
+
 function failure(argv: string[], message: string): { content: string } {
   return { content: `tmux ${argv[0]} failed: ${message}` }
 }
@@ -35,6 +41,7 @@ export async function registerTools(
   env: NodeJS.ProcessEnv = process.env,
 ) {
   const pane = paneOption(ctx)
+  const shell = shellOption(ctx)
   const target = (explicit?: string) => resolveTarget(explicit, pane, env)
 
   return ctx.tool.transform((editor) => {
@@ -106,7 +113,7 @@ export async function registerTools(
         const args = raw as { target?: string; name?: string; command?: string; vertical?: boolean }
         const resolved = target(args.target)
         if (!resolved) return { content: NO_TARGET }
-        const argv = newPaneArgv(resolved, { vertical: args.vertical, command: args.command })
+        const argv = newPaneArgv(resolved, { vertical: args.vertical, command: args.command, shell })
         const res = await runner(argv)
         if (res.code !== 0) return failure(argv, res.message)
         const id = res.stdout.trim()
@@ -133,7 +140,7 @@ export async function registerTools(
       },
       execute: async (raw) => {
         const args = raw as { name?: string; command?: string }
-        const argv = newWindowArgv({ name: args.name, command: args.command })
+        const argv = newWindowArgv({ name: args.name, command: args.command, shell })
         const res = await runner(argv)
         if (res.code !== 0) return failure(argv, res.message)
         const id = res.stdout.trim()

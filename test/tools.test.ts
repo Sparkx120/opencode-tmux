@@ -105,6 +105,45 @@ describe("registerTools", () => {
     expect(calls[1]).toEqual(["select-pane", "-t", "%42", "-T", "worker"])
   })
 
+  test("tmux_new_pane runs a command through the configured shell", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6", shell: "bash" })
+    const { runner, calls } = recordingRunner("%42\n")
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    await tools.get("tmux_new_pane")!.execute({ command: "ls | wc -l" }, {})
+    expect(calls[0]).toEqual([
+      "split-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-v",
+      "bash",
+      "-c",
+      "ls | wc -l",
+    ])
+  })
+
+  test("tmux_new_window defaults the command shell to sh", async () => {
+    const { ctx, tools } = fakeCtx({ pane: "%6" })
+    const { runner, calls } = recordingRunner("@7\n")
+    await registerTools(ctx, runner, EMPTY_ENV)
+
+    await tools.get("tmux_new_window")!.execute({ command: "echo hi" }, {})
+    expect(calls[0]).toEqual([
+      "new-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{window_id}",
+      "sh",
+      "-c",
+      "echo hi",
+    ])
+  })
+
   test("tmux_capture returns captured text", async () => {
     const { ctx, tools } = fakeCtx({ pane: "%6" })
     const { runner } = recordingRunner("hello world\n")

@@ -100,7 +100,7 @@ describe("newPaneArgv", () => {
     ])
   })
 
-  test("appends a shell command as the final arguments", () => {
+  test("wraps a shell command in `sh -c`", () => {
     expect(newPaneArgv("%6", { vertical: true, command: "htop" })).toEqual([
       "split-window",
       "-d",
@@ -110,7 +110,25 @@ describe("newPaneArgv", () => {
       "-t",
       "%6",
       "-v",
+      "sh",
+      "-c",
       "htop",
+    ])
+  })
+
+  test("honors a custom shell", () => {
+    expect(newPaneArgv("%6", { command: "echo hi", shell: "bash" })).toEqual([
+      "split-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
+      "-t",
+      "%6",
+      "-v",
+      "bash",
+      "-c",
+      "echo hi",
     ])
   })
 })
@@ -120,7 +138,7 @@ describe("newWindowArgv", () => {
     expect(newWindowArgv({})).toEqual(["new-window", "-d", "-P", "-F", "#{window_id}"])
   })
 
-  test("adds -n for a name and the command last", () => {
+  test("adds -n for a name and the shell-wrapped command last", () => {
     expect(newWindowArgv({ name: "logs", command: "tail -f app.log" })).toEqual([
       "new-window",
       "-d",
@@ -129,7 +147,22 @@ describe("newWindowArgv", () => {
       "#{window_id}",
       "-n",
       "logs",
+      "sh",
+      "-c",
       "tail -f app.log",
+    ])
+  })
+
+  test("honors a custom shell", () => {
+    expect(newWindowArgv({ command: "echo hi", shell: "bash" })).toEqual([
+      "new-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{window_id}",
+      "bash",
+      "-c",
+      "echo hi",
     ])
   })
 })
