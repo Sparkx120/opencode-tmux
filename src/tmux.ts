@@ -244,6 +244,34 @@ export function captureArgv(target: string, opts: CaptureOptions = {}): string[]
   return argv
 }
 
+export interface ExecWaitOptions {
+  timeoutMs?: number
+  pollMs?: number
+}
+
+// Poll until extractExecOutput reports a bounded result, i.e. the end marker is
+// present. A stable capture is deliberately NOT the signal: on a fresh pane the
+// capture can be momentarily unchanged between the key send and the first
+// output, so two equal reads would return before the command had run. On
+// timeout the last extract is returned, bounded or not.
+export async function waitForExecOutput(
+  read: () => Promise<string>,
+  marker: string,
+  opts: ExecWaitOptions = {},
+): Promise<ExecExtract> {
+  const timeoutMs = opts.timeoutMs ?? 800
+  const pollMs = opts.pollMs ?? 50
+  const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+  const deadline = Date.now() + timeoutMs
+  let extracted = extractExecOutput(await read(), marker)
+  while (!extracted.bounded) {
+    if (Date.now() >= deadline) return extracted
+    await wait(pollMs)
+    extracted = extractExecOutput(await read(), marker)
+  }
+  return extracted
+}
+
 export interface SettleOptions {
   timeoutMs?: number
   pollMs?: number

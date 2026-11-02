@@ -631,8 +631,7 @@ describe("tmux_exec", () => {
       isProbe(argv) ? ok(`${targetOf(argv)}\n`) : argv[0] === "capture-pane" ? ok("random\nraw\nlines\n") : ok(""),
     )
     await registerTools(ctx, runner, EMPTY_ENV, execDeps)
-
-    const result = await tools.get("tmux_exec")!.execute({ command: "ls", target: "%4" }, TEST_CONTEXT)
+    const result = await tools.get("tmux_exec")!.execute({ command: "ls", target: "%4", timeoutMs: 20 }, TEST_CONTEXT)
     expect(result.content).toContain("random\nraw\nlines")
     expect(result.content).toContain("could not locate the output boundaries")
     expect(result.content).toContain("[tmux_exec: exit ?]")

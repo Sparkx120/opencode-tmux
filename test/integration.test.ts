@@ -141,9 +141,9 @@ describe.skipIf(!enabled)("live tmux integration", () => {
     }
   })
 
-  // tmux_exec, driven through the real tool: create a pane, run a command, read
-  // the output, then clean up.
-  test("tmux_exec returns a command's output from a new pane", async () => {
+  // tmux_exec, driven through the real tool: the returned content must be the
+  // command's output plus the trailer, never the echoed line or the fallback.
+  test("tmux_exec returns the command output and exit status without the echo", async () => {
     const EXEC_SESSION = "ocprobe-exec"
     const tools = new Map<string, { execute: (args: unknown, context: unknown) => Promise<{ content: string }> }>()
     const ctx = {
@@ -168,14 +168,39 @@ describe.skipIf(!enabled)("live tmux integration", () => {
         isDirectory: () => false,
       })
       const exec = tools.get("tmux_exec")!
-      const result = await exec.execute(
+      const context = { sessionID: "ses", agent: "a", messageID: "m", id: "c" }
+
+      // A known output string: present, and neither the echoed line nor the fallback note.
+      const okCase = await exec.execute(
         { command: "echo tmux_exec_marker", new: "pane", target: EXEC_SESSION, timeoutMs: 3000 },
-        { sessionID: "ses", agent: "a", messageID: "m", id: "c" },
+        context,
       )
-      // Only the command output, not the echoed command line, plus the trailer.
-      expect(result.content).toContain("tmux_exec_marker")
-      expect(result.content).not.toContain("echo tmux_exec_marker")
-      expect(result.content).toMatch(/\[tmux_exec: exit 0, pane %\d+\]/)
+      expect(okCase.content).toContain("tmux_exec_marker")
+      expect(okCase.content).not.toContain("echo tmux_exec_marker")
+      expect(okCase.content).not.toContain("could not locate the output boundaries")
+      expect(okCase.content).toMatch(/\[tmux_exec: exit 0, pane %\d+\]/)
+
+      // A real listing: output present, exit 0, no fallback.
+      const lsCase = await exec.execute(
+        {
+          command: "ls /srv/work/app",
+          new: "pane",
+          target: EXEC_SESSION,
+          timeoutMs: 3000,
+        },
+        context,
+      )
+      expect(lsCase.content).toContain("index.ts")
+      expect(lsCase.content).not.toContain("could not locate the output boundaries")
+      expect(lsCase.content).toMatch(/\[tmux_exec: exit 0, pane %\d+\]/)
+
+      // A failing command: the non-zero exit is surfaced, still no fallback.
+      const failCase = await exec.execute(
+        { command: "ls /nonexistent-xyz-123", new: "pane", target: EXEC_SESSION, timeoutMs: 3000 },
+        context,
+      )
+      expect(failCase.content).not.toContain("could not locate the output boundaries")
+      expect(failCase.content).toMatch(/\[tmux_exec: exit 2, pane %\d+\]/)
     } finally {
       await cleanup()
     }

@@ -13,6 +13,7 @@ import {
   settleCapture,
   sessionForArgv,
   targetExistsArgv,
+  waitForExecOutput,
   windowForArgv,
 } from "../src/tmux.js"
 
@@ -360,6 +361,39 @@ describe("extractExecOutput", () => {
       exit: undefined,
       bounded: true,
     })
+  })
+})
+
+describe("waitForExecOutput", () => {
+  test("keeps polling until the end marker appears", async () => {
+    const reads = ["M-B\n", "M-B\npartial\n", "M-B\nout\nM-E:0\n"]
+    let n = 0
+    const out = await waitForExecOutput(async () => reads[Math.min(n++, reads.length - 1)]!, "M", {
+      timeoutMs: 200,
+      pollMs: 1,
+    })
+    expect(out).toEqual({ text: "out", exit: 0, bounded: true })
+    expect(n).toBe(3)
+  })
+
+  test("does not stop at a stable but marker-less capture", async () => {
+    // Two byte-identical reads, then the markers: equality must not end the wait.
+    const reads = ["M-B\n", "M-B\n", "M-B\nout\nM-E:7\n"]
+    let n = 0
+    const out = await waitForExecOutput(async () => reads[Math.min(n++, reads.length - 1)]!, "M", {
+      timeoutMs: 200,
+      pollMs: 1,
+    })
+    expect(out).toEqual({ text: "out", exit: 7, bounded: true })
+    expect(n).toBe(3)
+  })
+
+  test("falls back to the last capture when the timeout expires", async () => {
+    let n = 0
+    const out = await waitForExecOutput(async () => `M-B\ntick ${n++}\n`, "M", { timeoutMs: 20, pollMs: 1 })
+    expect(out.bounded).toBe(false)
+    expect(out.text).toContain("M-B")
+    expect(n).toBeGreaterThan(1)
   })
 })
 

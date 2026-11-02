@@ -32,6 +32,7 @@ import {
   sessionForArgv,
   settleCapture,
   targetExistsArgv,
+  waitForExecOutput,
   WINDOW_PLACES,
   windowForArgv,
   type NewKind,
@@ -553,18 +554,19 @@ export async function registerTools(
         }
 
         // Capture the whole scrollback (`-S -`), not just the visible pane, so a
-        // long output does not scroll the begin marker out of the region.
+        // long output does not scroll the begin marker out of the region. Wait
+        // for the end marker itself: a stable capture is not proof the command
+        // finished, so settleCapture would return too early.
         const capture = captureArgv(runTarget, { start: "-" })
         const timeoutMs = typeof args.timeoutMs === "number" ? args.timeoutMs : undefined
-        const captured = await settleCapture(
+        const extracted = await waitForExecOutput(
           async () => {
             const res = await runner(capture)
             return res.code === 0 ? res.stdout : `tmux capture-pane failed: ${res.message}`
           },
+          sentinel,
           { timeoutMs },
         )
-
-        const extracted = extractExecOutput(captured, sentinel)
         if (!extracted.bounded) {
           // The markers were not both present (e.g. the begin marker scrolled
           // past the history limit): return the raw capture and say so.
