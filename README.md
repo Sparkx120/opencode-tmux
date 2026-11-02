@@ -9,14 +9,31 @@ An OpenCode V2 plugin that adds a small set of tmux tools and two skills that do
 
 The tools act on the pane the agent runs in by default. That anchor is resolved once per session, in this order: an explicit `target` on the call, then the `pane` option, then the pane whose current path matches the session's location directory, then `$TMUX_PANE`. The directory match exists because `opencode serve` is a long-lived daemon shared by every TUI, so the `$TMUX_PANE` it inherited belongs to whichever pane launched the daemon, not to the calling session. When the directory matches more than one pane, one running the opencode TUI wins; if that is still ambiguous, the resolver falls back to `$TMUX_PANE` rather than guessing. A resolved target that no longer exists is detected before the operation runs and reported, rather than failing with a raw tmux error. `tmux_context` labels the anchor line with how it was resolved.
 
+> This is an initial alpha/beta release. The tool surface, options, and skills are still
+> settling, and a later release may change them in ways that break existing configuration.
+
 ## Install
 
-Add a `plugins` entry to `opencode.jsonc`. The object form lets you set the plugin options:
+Install from GitHub with the OpenCode CLI. The repository is private, so the install uses
+your existing Git credentials, such as an SSH key or a credential helper:
+
+```sh
+opencode plugin add github:Sparkx120/opencode-tmux
+```
+
+Pin a branch, tag, or commit hash when you want a fixed revision:
+
+```sh
+opencode plugin add 'github:Sparkx120/opencode-tmux#main'
+```
+
+Or add the plugin to `opencode.jsonc` directly. The bare spec works on its own
+(`"github:Sparkx120/opencode-tmux"`), and the object form lets you set the plugin options:
 
 ```jsonc
 {
   "plugins": [
-    { "package": "opencode-tmux", "options": { "pane": "%6", "shell": "bash", "editor": "nvim" } }
+    { "package": "github:Sparkx120/opencode-tmux", "options": { "pane": "%6", "shell": "bash", "editor": "nvim" } }
   ]
 }
 ```
